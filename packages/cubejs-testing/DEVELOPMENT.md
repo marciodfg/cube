@@ -58,6 +58,21 @@ $ yarn cypress:install
 $ yarn cypress:birdbox
 ```
 
+### Run SQL schema projection smoke tests
+
+The SQL API smoke suite starts a real Cube deployment with a seeded PostgreSQL backend. It exercises
+the PostgreSQL wire protocol and a `psql` client from the local `postgres:15` Docker image, including
+multi-schema cube and view projections, catalog discovery, visibility filtering, and prepared statements.
+
+```shell
+$ cd packages/cubejs-testing
+$ yarn tsc
+$ yarn smoke:cubesql
+```
+
+This is the same `smoke:cubesql` command run by the native GNU CI workflow.
+The Dockerized `psql` check uses host networking, so run it on GNU/Linux (including WSL).
+
 ### Convert Postgres dump into csv and upload it to BigQuery
 
 ```shell
