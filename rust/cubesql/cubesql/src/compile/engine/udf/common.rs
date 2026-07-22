@@ -56,6 +56,7 @@ use crate::{
         },
     },
     sql::SessionState,
+    transport::{MetaContext, CATALOG_DYNAMIC_OID_START, CATALOG_PUBLIC_SCHEMA_NAME},
 };
 
 type IntervalDayTime = <IntervalDayTimeType as ArrowPrimitiveType>::Native;
@@ -2063,7 +2064,7 @@ pub fn create_pg_get_expr_udf() -> ScalarUDF {
     )
 }
 
-pub fn create_pg_table_is_visible_udf() -> ScalarUDF {
+pub fn create_pg_table_is_visible_udf(meta: Arc<MetaContext>) -> ScalarUDF {
     let fun = make_scalar_function(move |args: &[ArrayRef]| {
         assert!(args.len() == 1);
 
@@ -2072,7 +2073,11 @@ pub fn create_pg_table_is_visible_udf() -> ScalarUDF {
         let result = oids_arr
             .iter()
             .map(|oid| match oid {
-                Some(_oid) => Some(true),
+                Some(oid) => Some(
+                    meta.find_catalog_projection_with_oid(oid)
+                        .map(|projection| projection.schema == CATALOG_PUBLIC_SCHEMA_NAME)
+                        .unwrap_or(true),
+                ),
                 _ => Some(false),
             })
             .collect::<BooleanArray>();
@@ -2119,7 +2124,7 @@ pub fn create_pg_sleep_udf() -> ScalarUDF {
     )
 }
 
-pub fn create_pg_type_is_visible_udf() -> ScalarUDF {
+pub fn create_pg_type_is_visible_udf(meta: Arc<MetaContext>) -> ScalarUDF {
     let fun = make_scalar_function(move |args: &[ArrayRef]| {
         let oids_arr = downcast_primitive_arg!(args[0], "oid", OidType);
 
@@ -2127,7 +2132,11 @@ pub fn create_pg_type_is_visible_udf() -> ScalarUDF {
             .iter()
             .map(|oid| match oid {
                 Some(oid) => {
-                    if oid >= 18000 {
+                    if let Some(projection) = meta.find_catalog_projection_with_type_oid(oid) {
+                        return Some(projection.schema == CATALOG_PUBLIC_SCHEMA_NAME);
+                    }
+
+                    if oid >= CATALOG_DYNAMIC_OID_START {
                         return Some(true);
                     }
 
@@ -3027,7 +3036,10 @@ pub fn create_pg_expandarray_udtf() -> TableUDF {
     )
 }
 
-pub fn create_has_schema_privilege_udf(state: Arc<SessionState>) -> ScalarUDF {
+pub fn create_has_schema_privilege_udf(
+    state: Arc<SessionState>,
+    meta: Arc<MetaContext>,
+) -> ScalarUDF {
     let fun = make_scalar_function(move |args: &[ArrayRef]| {
         let (users, schemas, privileges) = if args.len() == 3 {
             (
@@ -3061,15 +3073,14 @@ pub fn create_has_schema_privilege_udf(state: Arc<SessionState>) -> ScalarUDF {
                             _ => (),
                         }
 
-                        match schema {
-                            "public" | "pg_catalog" | "information_schema" => (),
-                            _ => {
-                                return Err(DataFusionError::Execution(format!(
-                                    "schema \"{}\" does not exist",
-                                    schema
-                                )))
-                            }
-                        };
+                        if !matches!(schema, "public" | "pg_catalog" | "information_schema")
+                            && !meta.has_catalog_schema(schema)
+                        {
+                            return Err(DataFusionError::Execution(format!(
+                                "schema \"{}\" does not exist",
+                                schema
+                            )));
+                        }
 
                         let requested = if privilege.contains(",") {
                             privilege

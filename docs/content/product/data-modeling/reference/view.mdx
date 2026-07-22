@@ -195,6 +195,49 @@ To learn more about using `public` to control visibility based on security
 context, read the [Controlling access to cubes and views
 recipe][ref-recipe-control-access-cubes-views].
 
+### `sql_schemas`
+
+Use `sql_schemas` to expose a view in one or more schemas in the SQL API. The
+value must be a non-empty array of unique, lowercase PostgreSQL identifiers.
+
+<CodeTabs>
+
+```javascript
+view(`date`, {
+  sqlSchemas: [`sales`, `finance`],
+  cubes: [{
+    join_path: shared_date,
+    includes: `*`
+  }]
+})
+```
+
+```yaml
+views:
+  - name: date
+    sql_schemas:
+      - sales
+      - finance
+    cubes:
+      - join_path: shared_date
+        includes: "*"
+```
+
+</CodeTabs>
+
+This creates the SQL API relations `sales.date` and `finance.date`. Declaring
+`sql_schemas` replaces the default exposure in `public`; include `public`
+explicitly when both qualified and unqualified access are required. Views that
+omit this parameter remain available in `public` for backward compatibility.
+Exposing a view does not expose its source cubes in the same schemas.
+An extending view inherits `sql_schemas` when it omits the parameter; declaring
+its own array replaces, rather than merges with, the inherited array.
+
+Schema names can contain lowercase letters, numbers, and underscores, must be
+no longer than 63 characters, and cannot be `information_schema`, `pg_catalog`,
+or start with `pg_`. A view with [`public: false`](#public) is not exposed in
+any SQL schema.
+
 ### `meta`
 
 Custom metadata. Can be used to pass any information to the frontend.

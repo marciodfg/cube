@@ -21,8 +21,12 @@ pub struct V1CubeMeta {
     pub r#type: models::V1CubeMetaType,
     #[serde(rename = "meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
+    /// Whether this cube or view is public and queryable through APIs.
+    #[serde(rename = "public", skip_serializing_if = "Option::is_none")]
+    pub public: Option<bool>,
     #[serde(rename = "description", skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// SQL schemas in which this cube or view is exposed through the SQL API.
     #[serde(rename = "sqlSchemas", skip_serializing_if = "Option::is_none")]
     pub sql_schemas: Option<Vec<String>>,
     #[serde(rename = "measures")]
@@ -54,6 +58,7 @@ impl V1CubeMeta {
             title: None,
             r#type,
             meta: None,
+            public: None,
             description: None,
             sql_schemas: None,
             measures,

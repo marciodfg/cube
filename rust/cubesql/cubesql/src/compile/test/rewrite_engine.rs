@@ -28,8 +28,8 @@ pub async fn create_test_postgresql_cube_context(
 
     query_engine.create_cube_ctx(
         session.state.clone(),
-        meta,
-        query_engine.create_session_ctx(session.state.clone())?,
+        meta.clone(),
+        query_engine.create_session_ctx(session.state.clone(), meta)?,
     )
 }
 

@@ -76,6 +76,7 @@ fn views_meta() -> Vec<CubeMeta> {
             nested_folders: None,
             hierarchies: None,
             meta: None,
+            public: None,
         },
         CubeMeta {
             name: "orders_view".to_string(),
@@ -96,6 +97,7 @@ fn views_meta() -> Vec<CubeMeta> {
             nested_folders: None,
             hierarchies: None,
             meta: None,
+            public: None,
         },
         CubeMeta {
             name: "returns_view".to_string(),
@@ -114,6 +116,7 @@ fn views_meta() -> Vec<CubeMeta> {
             nested_folders: None,
             hierarchies: None,
             meta: None,
+            public: None,
         },
         CubeMeta {
             name: "payments_view".to_string(),
@@ -132,6 +135,7 @@ fn views_meta() -> Vec<CubeMeta> {
             nested_folders: None,
             hierarchies: None,
             meta: None,
+            public: None,
         },
     ]
 }

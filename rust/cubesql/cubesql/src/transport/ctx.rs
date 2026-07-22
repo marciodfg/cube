@@ -12,14 +12,14 @@ use super::{CubeMeta, CubeMetaDimension, CubeMetaMeasure, V1CubeMetaExt};
 
 pub const CATALOG_PUBLIC_SCHEMA_NAME: &str = "public";
 pub const CATALOG_PUBLIC_SCHEMA_OID: u32 = 2200;
-const CATALOG_DYNAMIC_SCHEMA_OID_START: u32 = 18000;
+pub(crate) const CATALOG_DYNAMIC_OID_START: u32 = 18000;
 
 #[derive(Debug)]
 pub struct MetaContext {
     pub cubes: Vec<CubeMeta>,
     /// SQL-visible relations. Each record is a catalog identity for one schema projection of a
-    /// semantic Cube model. Today every model has one implicit `public` projection; later
-    /// declarations may add more records without changing catalog consumers.
+    /// semantic Cube model. Models without a declaration retain one implicit `public` projection;
+    /// an explicit declaration replaces it with one record per declared schema.
     pub catalog_projections: Vec<CatalogProjection>,
     pub member_to_data_source: HashMap<String, String>,
     pub data_source_to_sql_generator: HashMap<String, Arc<dyn SqlGenerator + Send + Sync>>,
@@ -93,6 +93,12 @@ impl MetaContext {
         data_source_to_sql_generator: HashMap<String, Arc<dyn SqlGenerator + Send + Sync>>,
         compiler_id: Uuid,
     ) -> Self {
+        // Meta responses from older Cube servers do not include `public`; preserve their
+        // existing SQL visibility by treating that omission as public.
+        let cubes: Vec<CubeMeta> = cubes
+            .into_iter()
+            .filter(|cube| cube.public.unwrap_or(true))
+            .collect();
         let custom_schemas: BTreeSet<String> = cubes
             .iter()
             .flat_map(|cube| cube.sql_schemas.iter().flatten())
@@ -103,7 +109,7 @@ impl MetaContext {
             CATALOG_PUBLIC_SCHEMA_NAME.to_string(),
             CATALOG_PUBLIC_SCHEMA_OID,
         )]);
-        let mut next_schema_oid = CATALOG_DYNAMIC_SCHEMA_OID_START;
+        let mut next_schema_oid = CATALOG_DYNAMIC_OID_START;
         for schema in custom_schemas {
             schema_oids.insert(schema, next_schema_oid);
             next_schema_oid += 1;
@@ -296,6 +302,18 @@ impl MetaContext {
             .find(|projection| projection.oid == oid)
     }
 
+    pub fn find_catalog_projection_with_type_oid(&self, oid: u32) -> Option<&CatalogProjection> {
+        self.catalog_projections
+            .iter()
+            .find(|projection| projection.record_oid == oid || projection.array_handler_oid == oid)
+    }
+
+    pub fn has_catalog_schema(&self, schema: &str) -> bool {
+        self.catalog_projections
+            .iter()
+            .any(|projection| projection.schema == schema)
+    }
+
     pub fn find_catalog_projection(&self, schema: &str, name: &str) -> Option<&CatalogProjection> {
         self.catalog_projections.iter().find(|projection| {
             projection.schema.eq_ignore_ascii_case(schema)
@@ -336,6 +354,7 @@ mod tests {
                 nested_folders: None,
                 hierarchies: None,
                 meta: None,
+                public: None,
             },
             CubeMeta {
                 name: "test2".to_string(),
@@ -351,6 +370,7 @@ mod tests {
                 nested_folders: None,
                 hierarchies: None,
                 meta: None,
+                public: None,
             },
         ];
 
@@ -394,6 +414,7 @@ mod tests {
             nested_folders: None,
             hierarchies: None,
             meta: None,
+            public: None,
         };
         let context = MetaContext::new(vec![cube], HashMap::new(), HashMap::new(), Uuid::new_v4());
 
@@ -403,8 +424,8 @@ mod tests {
         assert_ne!(sales.record_oid, finance.record_oid);
         assert_ne!(sales.array_handler_oid, finance.array_handler_oid);
         assert_ne!(sales.schema_oid, finance.schema_oid);
-        assert_eq!(sales.schema_oid, CATALOG_DYNAMIC_SCHEMA_OID_START + 1);
-        assert_eq!(finance.schema_oid, CATALOG_DYNAMIC_SCHEMA_OID_START);
+        assert_eq!(sales.schema_oid, CATALOG_DYNAMIC_OID_START + 1);
+        assert_eq!(finance.schema_oid, CATALOG_DYNAMIC_OID_START);
         assert!(context.find_catalog_projection("public", "date").is_none());
     }
 
@@ -424,6 +445,7 @@ mod tests {
             nested_folders: None,
             hierarchies: None,
             meta: None,
+            public: None,
         };
         let projections = |cubes| {
             MetaContext::new(cubes, HashMap::new(), HashMap::new(), Uuid::new_v4())
@@ -437,5 +459,52 @@ mod tests {
             projections(vec![cube("date"), cube("orders")]),
             projections(vec![cube("orders"), cube("date")]),
         );
+    }
+
+    #[test]
+    fn public_visibility_filters_models_without_breaking_legacy_metadata() {
+        let cube = |name: &str, public, sql_schemas| CubeMeta {
+            name: name.to_string(),
+            description: None,
+            sql_schemas,
+            title: None,
+            r#type: CubeMetaType::Cube,
+            dimensions: vec![],
+            measures: vec![],
+            segments: vec![],
+            joins: None,
+            folders: None,
+            nested_folders: None,
+            hierarchies: None,
+            meta: None,
+            public,
+        };
+        let context = MetaContext::new(
+            vec![
+                cube("visible", Some(true), Some(vec!["sales".to_string()])),
+                cube("hidden", Some(false), Some(vec!["sales".to_string()])),
+                cube("legacy", None, None),
+            ],
+            HashMap::new(),
+            HashMap::new(),
+            Uuid::new_v4(),
+        );
+
+        assert_eq!(
+            context
+                .cubes
+                .iter()
+                .map(|cube| cube.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["visible", "legacy"]
+        );
+        assert!(context
+            .find_catalog_projection("sales", "visible")
+            .is_some());
+        assert!(context
+            .find_catalog_projection("public", "legacy")
+            .is_some());
+        assert!(context.find_catalog_projection("sales", "legacy").is_none());
+        assert!(context.find_catalog_projection("sales", "hidden").is_none());
     }
 }

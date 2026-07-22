@@ -1,7 +1,6 @@
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { afterAll, beforeAll, jest, expect } from '@jest/globals';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 import { Client as PgClient } from 'pg';
 import { PostgresDBRunner } from '@cubejs-backend/testing-shared';
 import jwt from 'jsonwebtoken';
@@ -25,19 +24,33 @@ describe('SQL API', () => {
   // TODO: Random port?
   const pgPort = 5656;
   let connectionId = 0;
-  const execFileAsync = promisify(execFile);
 
   async function runPsql(query: string) {
-    const { stdout } = await execFileAsync('docker', [
-      'run', '--rm', '--network', 'host',
-      '-e', 'PGPASSWORD=admin_password',
-      'postgres:15',
-      'psql', '--no-psqlrc', '--tuples-only', '--no-align', '--field-separator=|',
-      '-h', '127.0.0.1', '-p', `${pgPort}`, '-U', 'admin', '-d', 'db',
-      '-v', 'ON_ERROR_STOP=1', '-c', query,
-    ]);
-
-    return stdout.trim().split('\n').filter(Boolean);
+    return new Promise<string[]>((resolve, reject) => {
+      const child = spawn('docker', [
+        'run', '--rm', '-i', '--network', 'host',
+        '-e', 'PGPASSWORD=admin_password',
+        'postgres:16',
+        'psql', '--no-psqlrc', '--tuples-only', '--no-align', '--field-separator=|',
+        '-h', '127.0.0.1', '-p', `${pgPort}`, '-U', 'admin', '-d', 'db',
+        '-v', 'ON_ERROR_STOP=1',
+      ]);
+      let stdout = '';
+      let stderr = '';
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => { stdout += chunk; });
+      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      child.on('error', reject);
+      child.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(stderr.trim() || `psql exited with status ${code}`));
+          return;
+        }
+        resolve(stdout.trim().split('\n').filter(Boolean));
+      });
+      child.stdin.end(query);
+    });
   }
 
   async function createPostgresClient(user: string, password: string) {
@@ -524,10 +537,13 @@ describe('SQL API', () => {
 
   describe('Postgres (SQL schema projections)', () => {
     const projectedRelations = [
+      { schema: 'finance', table: 'schema_customers' },
       { schema: 'finance', table: 'schema_orders' },
       { schema: 'finance', table: 'schema_orders_view' },
+      { schema: 'sales', table: 'sales_legacy_orders' },
       { schema: 'sales', table: 'schema_orders' },
       { schema: 'sales', table: 'schema_orders_view' },
+      { schema: 'sales', table: 'shared_date' },
     ];
 
     test('queries every declared cube and view projection while preserving legacy public access', async () => {
@@ -544,20 +560,31 @@ describe('SQL API', () => {
         `);
 
         expect(cube.rows).toEqual([
-          { id: '1', amount: '100', status: 'new' },
-          { id: '2', amount: '200', status: 'processed' },
+          { id: 1, amount: 100, status: 'new' },
+          { id: 2, amount: 200, status: 'processed' },
         ]);
         expect(view.rows).toEqual(cube.rows);
       }
 
       expect((await connection.query('SELECT id FROM legacy_orders ORDER BY id')).rows).toEqual([
-        { id: '1' },
-        { id: '2' },
+        { id: 1 },
+        { id: 2 },
       ]);
       expect((await connection.query('SELECT id FROM public.legacy_orders ORDER BY id')).rows).toEqual([
-        { id: '1' },
-        { id: '2' },
+        { id: 1 },
+        { id: 2 },
       ]);
+
+      expect((await connection.query('SELECT date FROM shared_date')).rows).toEqual([
+        { date: new Date('2026-07-23T00:00:00.000Z') },
+      ]);
+      expect((await connection.query('SELECT date FROM sales.shared_date')).rows).toEqual([
+        { date: new Date('2026-07-23T00:00:00.000Z') },
+      ]);
+
+      expect((await connection.query('SELECT id FROM sales.sales_legacy_orders ORDER BY id')).rows)
+        .toEqual([{ id: 1 }, { id: 2 }]);
+      await expect(connection.query('SELECT * FROM sales.legacy_orders')).rejects.toThrow();
     });
 
     test('does not fall back to bare, public, or undeclared schema projections', async () => {
@@ -581,21 +608,21 @@ describe('SQL API', () => {
         '2',
       ]);
       await expect(runPsql(`
-        SELECT cube.id
-        FROM sales.schema_orders AS cube
-        INNER JOIN finance.schema_orders_view AS view ON cube.id = view.id
-        ORDER BY cube.id
-      `)).resolves.toEqual(['1', '2']);
+        SELECT orders.status, customers.name
+        FROM sales.schema_orders AS orders
+        LEFT JOIN finance.schema_customers AS customers
+          ON orders.__cubeJoinField = customers.__cubeJoinField
+        ORDER BY orders.status
+      `)).resolves.toEqual(['new|Ada', 'processed|Grace']);
       await expect(runPsql(`
         WITH finance_orders AS (SELECT id, amount FROM finance.schema_orders)
         SELECT id FROM finance_orders WHERE amount > 100
       `)).resolves.toEqual(['2']);
       await expect(runPsql(`
-        PREPARE schema_orders_by_id(int) AS
-          SELECT id, amount FROM sales.schema_orders WHERE id = $1;
-        EXECUTE schema_orders_by_id(2);
-        DEALLOCATE schema_orders_by_id;
-      `)).resolves.toContain('2|200');
+        SELECT id, amount FROM sales.schema_orders WHERE id = $1
+        \\bind 2
+        \\g
+      `)).resolves.toEqual(['2|200']);
 
       await expect(runPsql(`
         SELECT table_schema || '.' || table_name
@@ -610,11 +637,11 @@ describe('SQL API', () => {
         'sales.schema_orders_view',
       ]);
       await expect(runPsql(`
-        SELECT "schema" || '.' || "table"
+        SELECT table_schema || '.' || table_name
         FROM svv_tables
-        WHERE "schema" IN ('sales', 'finance')
-          AND "table" IN ('schema_orders', 'schema_orders_view')
-        ORDER BY "schema", "table"
+        WHERE table_schema IN ('sales', 'finance')
+          AND table_name IN ('schema_orders', 'schema_orders_view')
+        ORDER BY table_schema, table_name
       `)).resolves.toEqual([
         'finance.schema_orders',
         'finance.schema_orders_view',
@@ -627,14 +654,27 @@ describe('SQL API', () => {
       await expect(runPsql('SELECT * FROM marketing.schema_orders')).rejects.toThrow();
     });
 
-    test('supports joins, CTEs, subqueries, and prepared statements over qualified projections', async () => {
+    test('supports modeled joins, CTEs, subqueries, and prepared statements over qualified projections', async () => {
       const joined = await connection.query(`
-        SELECT cube.id
-        FROM sales.schema_orders AS cube
-        INNER JOIN finance.schema_orders_view AS view ON cube.id = view.id
-        ORDER BY cube.id
+        SELECT orders.status, customers.name
+        FROM sales.schema_orders AS orders
+        LEFT JOIN finance.schema_customers AS customers
+          ON orders.__cubeJoinField = customers.__cubeJoinField
+        ORDER BY orders.status
       `);
-      expect(joined.rows).toEqual([{ id: '1' }, { id: '2' }]);
+      expect(joined.rows).toEqual([
+        { status: 'new', name: 'Ada' },
+        { status: 'processed', name: 'Grace' },
+      ]);
+
+      const mixedPublicCustomJoin = await connection.query(`
+        SELECT orders.status, customers.name
+        FROM sales.schema_orders AS orders
+        LEFT JOIN public.schema_customers AS customers
+          ON orders.__cubeJoinField = customers.__cubeJoinField
+        ORDER BY orders.status
+      `);
+      expect(mixedPublicCustomJoin.rows).toEqual(joined.rows);
 
       const cte = await connection.query(`
         WITH finance_orders AS (
@@ -642,7 +682,7 @@ describe('SQL API', () => {
         )
         SELECT id FROM finance_orders WHERE amount > 100 ORDER BY id
       `);
-      expect(cte.rows).toEqual([{ id: '2' }]);
+      expect(cte.rows).toEqual([{ id: 2 }]);
 
       const subquery = await connection.query(`
         SELECT id
@@ -650,18 +690,13 @@ describe('SQL API', () => {
         WHERE amount > 100
         ORDER BY id
       `);
-      expect(subquery.rows).toEqual([{ id: '2' }]);
+      expect(subquery.rows).toEqual([{ id: 2 }]);
 
-      await connection.query(
-        'PREPARE schema_orders_by_id(int) AS SELECT id, amount FROM sales.schema_orders WHERE id = $1'
-      );
-      try {
-        expect((await connection.query('EXECUTE schema_orders_by_id(2)')).rows).toEqual([
-          { id: '2', amount: '200' },
-        ]);
-      } finally {
-        await connection.query('DEALLOCATE schema_orders_by_id');
-      }
+      expect((await connection.query({
+        name: 'schema-orders-by-id',
+        text: 'SELECT id, amount FROM sales.schema_orders WHERE id = $1',
+        values: [2],
+      })).rows).toEqual([{ id: 2, amount: 200 }]);
     });
 
     test('keeps PostgreSQL and Redshift catalog projections consistent', async () => {
@@ -673,24 +708,143 @@ describe('SQL API', () => {
       `);
       expect(schemas.rows).toEqual([{ schema: 'finance' }, { schema: 'sales' }]);
 
+      const schemaPrivileges = await connection.query(`
+        SELECT schema_name AS schema,
+          has_schema_privilege(schema_name, 'USAGE') AS can_use,
+          has_schema_privilege(schema_name, 'CREATE') AS can_create
+        FROM information_schema.schemata
+        WHERE schema_name IN ('sales', 'finance')
+        ORDER BY schema_name
+      `);
+      expect(schemaPrivileges.rows).toEqual([
+        { schema: 'finance', can_use: true, can_create: false },
+        { schema: 'sales', can_use: true, can_create: false },
+      ]);
+
       const pgClass = await connection.query(`
         SELECT namespace.nspname AS schema, class.relname AS table, class.oid, relation_type.oid AS type_oid
         FROM pg_catalog.pg_class AS class
         INNER JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace
         INNER JOIN pg_catalog.pg_type AS relation_type ON relation_type.typrelid = class.oid
         WHERE namespace.nspname IN ('sales', 'finance')
-          AND class.relname IN ('schema_orders', 'schema_orders_view')
+          AND class.relname IN (
+            'schema_customers', 'schema_orders', 'schema_orders_view',
+            'sales_legacy_orders', 'shared_date'
+          )
         ORDER BY namespace.nspname, class.relname
       `);
       expect(pgClass.rows.map(({ schema, table }) => ({ schema, table }))).toEqual(projectedRelations);
       expect(new Set(pgClass.rows.map((row) => row.oid)).size).toBe(projectedRelations.length);
       expect(new Set(pgClass.rows.map((row) => row.type_oid)).size).toBe(projectedRelations.length);
 
+      const tableDescriptions = await connection.query(`
+        SELECT namespace.nspname AS schema, class.relname AS table, dsc.description
+        FROM pg_catalog.pg_class AS class
+        INNER JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace
+        INNER JOIN pg_catalog.pg_description AS dsc
+          ON dsc.objoid = class.oid AND dsc.objsubid = 0
+        WHERE namespace.nspname IN ('sales', 'finance')
+          AND class.relname = 'schema_orders'
+        ORDER BY namespace.nspname
+      `);
+      expect(tableDescriptions.rows).toEqual([
+        {
+          schema: 'finance',
+          table: 'schema_orders',
+          description: 'Orders exposed to department-specific SQL schemas',
+        },
+        {
+          schema: 'sales',
+          table: 'schema_orders',
+          description: 'Orders exposed to department-specific SQL schemas',
+        },
+      ]);
+
+      const columnDescriptions = await connection.query(`
+        SELECT namespace.nspname AS schema, class.relname AS table,
+          attribute.attname AS column, dsc.description
+        FROM pg_catalog.pg_class AS class
+        INNER JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace
+        INNER JOIN pg_catalog.pg_attribute AS attribute
+          ON attribute.attrelid = class.oid AND attribute.attname = 'id'
+        INNER JOIN pg_catalog.pg_description AS dsc
+          ON dsc.objoid = class.oid AND dsc.objsubid = attribute.attnum
+        WHERE namespace.nspname IN ('sales', 'finance')
+          AND class.relname = 'schema_orders'
+        ORDER BY namespace.nspname
+      `);
+      expect(columnDescriptions.rows).toEqual([
+        {
+          schema: 'finance',
+          table: 'schema_orders',
+          column: 'id',
+          description: 'Order identifier',
+        },
+        {
+          schema: 'sales',
+          table: 'schema_orders',
+          column: 'id',
+          description: 'Order identifier',
+        },
+      ]);
+
+      const searchPathVisibility = await connection.query(`
+        SELECT namespace.nspname AS schema, class.relname AS table,
+          pg_table_is_visible(class.oid) AS table_visible,
+          pg_type_is_visible(relation_type.oid) AS type_visible,
+          pg_type_is_visible(relation_type.typarray) AS array_type_visible
+        FROM pg_catalog.pg_class AS class
+        INNER JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace
+        INNER JOIN pg_catalog.pg_type AS relation_type ON relation_type.typrelid = class.oid
+        WHERE namespace.nspname IN ('sales', 'finance')
+          AND class.relname IN (
+            'schema_customers', 'schema_orders', 'schema_orders_view',
+            'sales_legacy_orders', 'shared_date'
+          )
+        ORDER BY namespace.nspname, class.relname
+      `);
+      expect(searchPathVisibility.rows).toEqual(projectedRelations.map((relation) => ({
+        ...relation,
+        table_visible: false,
+        type_visible: false,
+        array_type_visible: false,
+      })));
+
+      const publicSearchPathVisibility = await connection.query(`
+        SELECT class.relname AS table,
+          pg_table_is_visible(class.oid) AS table_visible,
+          pg_type_is_visible(relation_type.oid) AS type_visible,
+          pg_type_is_visible(relation_type.typarray) AS array_type_visible
+        FROM pg_catalog.pg_class AS class
+        INNER JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace
+        INNER JOIN pg_catalog.pg_type AS relation_type ON relation_type.typrelid = class.oid
+        WHERE namespace.nspname = 'public'
+          AND class.relname IN ('schema_customers', 'shared_date')
+        ORDER BY class.relname
+      `);
+      expect(publicSearchPathVisibility.rows).toEqual([
+        {
+          table: 'schema_customers',
+          table_visible: true,
+          type_visible: true,
+          array_type_visible: true,
+        },
+        {
+          table: 'shared_date',
+          table_visible: true,
+          type_visible: true,
+          array_type_visible: true,
+        },
+      ]);
+
       const tables = await connection.query(`
         SELECT table_schema AS schema, table_name AS table
         FROM information_schema.tables
         WHERE table_schema IN ('sales', 'finance')
-          AND table_name IN ('schema_orders', 'schema_orders_view')
+          AND table_name IN (
+            'schema_customers', 'schema_orders', 'schema_orders_view',
+            'sales_legacy_orders', 'shared_date'
+          )
         ORDER BY table_schema, table_name
       `);
       expect(tables.rows).toEqual(projectedRelations);
@@ -712,7 +866,10 @@ describe('SQL API', () => {
         SELECT schemaname AS schema, tablename AS table
         FROM pg_catalog.pg_tables
         WHERE schemaname IN ('sales', 'finance')
-          AND tablename IN ('schema_orders', 'schema_orders_view')
+          AND tablename IN (
+            'schema_customers', 'schema_orders', 'schema_orders_view',
+            'sales_legacy_orders', 'shared_date'
+          )
         ORDER BY schemaname, tablename
       `);
       expect(pgTables.rows).toEqual(projectedRelations);
@@ -723,7 +880,10 @@ describe('SQL API', () => {
         FROM pg_catalog.pg_class AS class
         INNER JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace
         WHERE namespace.nspname IN ('sales', 'finance')
-          AND class.relname IN ('schema_orders', 'schema_orders_view')
+          AND class.relname IN (
+            'schema_customers', 'schema_orders', 'schema_orders_view',
+            'sales_legacy_orders', 'shared_date'
+          )
         ORDER BY namespace.nspname, class.relname
       `);
       expect(grants.rows).toEqual(projectedRelations.map((relation) => ({
@@ -735,18 +895,44 @@ describe('SQL API', () => {
         SELECT schemaname AS schema, tablename AS table
         FROM pg_catalog.pg_stats
         WHERE schemaname IN ('sales', 'finance')
-          AND tablename IN ('schema_orders', 'schema_orders_view')
+          AND tablename IN (
+            'schema_customers', 'schema_orders', 'schema_orders_view',
+            'sales_legacy_orders', 'shared_date'
+          )
         GROUP BY schemaname, tablename
         ORDER BY schemaname, tablename
       `);
       expect(stats.rows).toEqual(projectedRelations);
 
+      for (const statisticsView of ['pg_stat_user_tables', 'pg_statio_user_tables']) {
+        const result = await connection.query(`
+          SELECT schemaname AS schema, relname AS table
+          FROM pg_catalog.${statisticsView}
+          WHERE schemaname IN ('sales', 'finance')
+          ORDER BY schemaname, relname
+        `);
+        expect(result.rows).toEqual(projectedRelations);
+      }
+
+      for (const grantsView of ['role_table_grants', 'role_column_grants']) {
+        const result = await connection.query(`
+          SELECT DISTINCT table_schema AS schema, table_name AS table
+          FROM information_schema.${grantsView}
+          WHERE table_schema IN ('sales', 'finance')
+          ORDER BY table_schema, table_name
+        `);
+        expect(result.rows).toEqual(projectedRelations);
+      }
+
       const redshiftTables = await connection.query(`
-        SELECT "schema" AS schema, "table" AS table
+        SELECT table_schema AS schema, table_name AS table
         FROM svv_tables
-        WHERE "schema" IN ('sales', 'finance')
-          AND "table" IN ('schema_orders', 'schema_orders_view')
-        ORDER BY "schema", "table"
+        WHERE table_schema IN ('sales', 'finance')
+          AND table_name IN (
+            'schema_customers', 'schema_orders', 'schema_orders_view',
+            'sales_legacy_orders', 'shared_date'
+          )
+        ORDER BY table_schema, table_name
       `);
       expect(redshiftTables.rows).toEqual(projectedRelations);
 
@@ -754,7 +940,10 @@ describe('SQL API', () => {
         SELECT "schema" AS schema, "table" AS table, table_id
         FROM svv_table_info
         WHERE "schema" IN ('sales', 'finance')
-          AND "table" IN ('schema_orders', 'schema_orders_view')
+          AND "table" IN (
+            'schema_customers', 'schema_orders', 'schema_orders_view',
+            'sales_legacy_orders', 'shared_date'
+          )
         ORDER BY "schema", "table"
       `);
       expect(redshiftInfo.rows.map(({ schema, table }) => ({ schema, table }))).toEqual(projectedRelations);
@@ -767,7 +956,7 @@ describe('SQL API', () => {
         for (const catalogQuery of [
           `SELECT schema_name AS schema FROM information_schema.schemata WHERE schema_name IN ('sales', 'finance', 'hidden_only') ORDER BY schema_name`,
           `SELECT nspname AS schema FROM pg_catalog.pg_namespace WHERE nspname IN ('sales', 'finance', 'hidden_only') ORDER BY nspname`,
-          `SELECT "schema" AS schema FROM svv_tables WHERE "schema" IN ('sales', 'finance', 'hidden_only') GROUP BY "schema" ORDER BY "schema"`,
+          `SELECT table_schema AS schema FROM svv_tables WHERE table_schema IN ('sales', 'finance', 'hidden_only') GROUP BY table_schema ORDER BY table_schema`,
         ]) {
           const result = await userConnection.query(catalogQuery);
           expect(result.rows).toEqual([{ schema: 'finance' }, { schema: 'sales' }]);
@@ -779,6 +968,23 @@ describe('SQL API', () => {
           WHERE table_name = 'hidden_orders'
         `);
         expect(hidden.rows).toEqual([]);
+
+        for (const hiddenCatalogQuery of [
+          `SELECT table_schema, table_name FROM information_schema.role_table_grants WHERE table_schema = 'hidden_only'`,
+          `SELECT table_schema, table_name FROM information_schema.role_column_grants WHERE table_schema = 'hidden_only'`,
+          `SELECT schemaname, relname FROM pg_catalog.pg_stat_user_tables WHERE schemaname = 'hidden_only'`,
+          `SELECT schemaname, relname FROM pg_catalog.pg_statio_user_tables WHERE schemaname = 'hidden_only'`,
+          `SELECT namespace.nspname, class.relname
+           FROM pg_catalog.pg_class AS class
+           INNER JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace
+           WHERE namespace.nspname = 'hidden_only'`,
+        ]) {
+          expect((await userConnection.query(hiddenCatalogQuery)).rows).toEqual([]);
+        }
+
+        await expect(userConnection.query(
+          "SELECT has_schema_privilege('hidden_only', 'USAGE')"
+        )).rejects.toThrow('schema "hidden_only" does not exist');
         await expect(userConnection.query('SELECT * FROM hidden_only.hidden_orders')).rejects.toThrow();
       } finally {
         await userConnection.end();

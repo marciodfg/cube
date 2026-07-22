@@ -72,6 +72,7 @@ pub trait QueryEngine {
     fn create_session_ctx(
         &self,
         state: Arc<SessionState>,
+        meta: Arc<MetaContext>,
     ) -> Result<DFSessionContext, CompilationError>;
 
     async fn create_logical_plan(
@@ -118,7 +119,7 @@ pub trait QueryEngine {
             }
         }
 
-        let ctx = self.create_session_ctx(state.clone())?;
+        let ctx = self.create_session_ctx(state.clone(), meta.clone())?;
         let cube_ctx = self.create_cube_ctx(state.clone(), meta.clone(), ctx.clone())?;
 
         let (plan, metadata) = self
@@ -402,6 +403,7 @@ impl QueryEngine for SqlQueryEngine {
     fn create_session_ctx(
         &self,
         state: Arc<SessionState>,
+        meta: Arc<MetaContext>,
     ) -> Result<DFSessionContext, CompilationError> {
         let query_planner = Arc::new(CubeQueryPlanner::new(
             self.transport_ref().clone(),
@@ -475,8 +477,8 @@ impl QueryEngine for SqlQueryEngine {
         ctx.register_udf(create_pg_numeric_scale_udf());
         ctx.register_udf(create_pg_get_userbyid_udf(state.clone()));
         ctx.register_udf(create_pg_get_expr_udf());
-        ctx.register_udf(create_pg_table_is_visible_udf());
-        ctx.register_udf(create_pg_type_is_visible_udf());
+        ctx.register_udf(create_pg_table_is_visible_udf(meta.clone()));
+        ctx.register_udf(create_pg_type_is_visible_udf(meta.clone()));
         ctx.register_udf(create_pg_get_constraintdef_udf());
         ctx.register_udf(create_pg_truetypid_udf());
         ctx.register_udf(create_pg_truetypmod_udf());
@@ -485,7 +487,7 @@ impl QueryEngine for SqlQueryEngine {
         ctx.register_udf(create_array_upper_udf());
         ctx.register_udf(create_pg_my_temp_schema());
         ctx.register_udf(create_pg_is_other_temp_schema());
-        ctx.register_udf(create_has_schema_privilege_udf(state.clone()));
+        ctx.register_udf(create_has_schema_privilege_udf(state.clone(), meta));
         ctx.register_udf(create_has_table_privilege_udf(state.clone()));
         ctx.register_udf(create_has_any_column_privilege_udf(state.clone()));
         ctx.register_udf(create_pg_total_relation_size_udf());

@@ -61,14 +61,19 @@ $ yarn cypress:birdbox
 ### Run SQL schema projection smoke tests
 
 The SQL API smoke suite starts a real Cube deployment with a seeded PostgreSQL backend. It exercises
-the PostgreSQL wire protocol and a `psql` client from the local `postgres:15` Docker image, including
+the PostgreSQL wire protocol and a `psql` client from the local `postgres:16` Docker image, including
 multi-schema cube and view projections, catalog discovery, visibility filtering, and prepared statements.
 
 ```shell
-$ cd packages/cubejs-testing
+$ cd packages/cubejs-backend-native
+$ yarn native:build-debug
+$ cd ../cubejs-testing
 $ yarn tsc
 $ yarn smoke:cubesql
 ```
+
+Rebuild the native binding after changing CubeSQL Rust code; the smoke suite
+loads this local debug artifact.
 
 This is the same `smoke:cubesql` command run by the native GNU CI workflow.
 The Dockerized `psql` check uses host networking, so run it on GNU/Linux (including WSL).

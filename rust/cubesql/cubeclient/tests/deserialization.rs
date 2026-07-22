@@ -112,6 +112,7 @@ fn test_deserialize_meta_response_with_format_fields() {
         cubes[0].sql_schemas,
         Some(vec!["sales".to_string(), "finance".to_string()])
     );
+    assert_eq!(cubes[0].public, Some(false));
 
     // Verify currency on measure
     let total_amount = &cubes[0].measures[2];
@@ -127,6 +128,25 @@ fn test_deserialize_meta_response_with_format_fields() {
     let order_sum = &cubes[0].dimensions[1];
     assert_eq!(order_sum.name, "orders.order_sum");
     assert_eq!(order_sum.currency, Some("EUR".to_string()));
+}
+
+#[test]
+fn test_deserialize_legacy_meta_without_public_or_sql_schemas() {
+    let json_data = r#"{
+      "cubes": [{
+        "name": "orders",
+        "type": "cube",
+        "measures": [],
+        "dimensions": [],
+        "segments": []
+      }]
+    }"#;
+
+    let meta_response: V1MetaResponse =
+        serde_json::from_str(json_data).expect("legacy meta should remain compatible");
+    let cube = &meta_response.cubes.expect("cubes should be present")[0];
+    assert_eq!(cube.public, None);
+    assert_eq!(cube.sql_schemas, None);
 }
 
 #[test]

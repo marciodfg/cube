@@ -258,6 +258,9 @@ components:
           $ref: "#/components/schemas/V1CubeMetaType"
         meta:
           type: "object"
+        public:
+          description: Whether this cube or view is public and queryable through APIs.
+          type: "boolean"
         description:
           type: "string"
         sqlSchemas:

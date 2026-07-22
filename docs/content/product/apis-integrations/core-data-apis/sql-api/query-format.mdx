@@ -21,6 +21,27 @@ a table:
 ```sql
 SELECT * FROM orders;
 ```
+
+By default, cubes and views are exposed in the `public` schema. A model can use
+[`sql_schemas`](/product/data-modeling/reference/cube#parameters-sql-schemas) to
+declare an explicit array of SQL API schemas instead:
+
+```sql
+SELECT date FROM sales.date;
+SELECT date FROM finance.date;
+```
+
+The same model can be exposed in multiple schemas. Once `sql_schemas` is
+declared, `public` is not implicit; add it to the array if the model should also
+support `public.date` and the unqualified `date` name. Models without
+`sql_schemas` keep their existing `public` exposure.
+
+The SQL API search path remains `public`, so custom-schema relations must be
+qualified. Schemas and relations are also available through PostgreSQL catalog
+and `information_schema` queries. Model visibility and security context still
+apply to every projection, and exposing a view does not transitively expose its
+source cubes.
+
 ### Dimensions
 
 Given that your cube or view has a dimension called `status`, you can reference it
