@@ -6,10 +6,16 @@ use crate::{sql::ColumnType, transport::SqlGenerator};
 
 use super::{CubeMeta, CubeMetaDimension, CubeMetaMeasure, V1CubeMetaExt};
 
+pub const CATALOG_PUBLIC_SCHEMA_NAME: &str = "public";
+pub const CATALOG_PUBLIC_SCHEMA_OID: u32 = 2200;
+
 #[derive(Debug)]
 pub struct MetaContext {
     pub cubes: Vec<CubeMeta>,
-    pub tables: Vec<CubeMetaTable>,
+    /// SQL-visible relations. Each record is a catalog identity for one schema projection of a
+    /// semantic Cube model. Today every model has one implicit `public` projection; later
+    /// declarations may add more records without changing catalog consumers.
+    pub catalog_projections: Vec<CatalogProjection>,
     pub member_to_data_source: HashMap<String, String>,
     pub data_source_to_sql_generator: HashMap<String, Arc<dyn SqlGenerator + Send + Sync>>,
     pub compiler_id: Uuid,
@@ -19,10 +25,12 @@ pub struct MetaContext {
 }
 
 #[derive(Debug, Clone)]
-pub struct CubeMetaTable {
+pub struct CatalogProjection {
     pub oid: u32,
     pub record_oid: u32,
     pub array_handler_oid: u32,
+    pub schema: String,
+    pub schema_oid: u32,
     pub name: String,
     pub description: Option<String>,
     pub columns: Vec<CubeMetaColumn>,
@@ -82,12 +90,14 @@ impl MetaContext {
     ) -> Self {
         // 18000 - max system table oid
         let mut oid_iter: RangeFrom<u32> = 18000..;
-        let tables: Vec<CubeMetaTable> = cubes
+        let catalog_projections: Vec<CatalogProjection> = cubes
             .iter()
-            .map(|cube| CubeMetaTable {
+            .map(|cube| CatalogProjection {
                 oid: oid_iter.next().unwrap_or(0),
                 record_oid: oid_iter.next().unwrap_or(0),
                 array_handler_oid: oid_iter.next().unwrap_or(0),
+                schema: CATALOG_PUBLIC_SCHEMA_NAME.to_string(),
+                schema_oid: CATALOG_PUBLIC_SCHEMA_OID,
                 name: cube.name.clone(),
                 description: cube.description.clone(),
                 columns: cube
@@ -106,7 +116,7 @@ impl MetaContext {
 
         Self {
             cubes,
-            tables,
+            catalog_projections,
             member_to_data_source,
             data_source_to_sql_generator,
             compiler_id,
@@ -239,12 +249,16 @@ impl MetaContext {
             .df_data_type(member_name)
     }
 
-    pub fn find_cube_table_with_oid(&self, oid: u32) -> Option<&CubeMetaTable> {
-        self.tables.iter().find(|table| table.oid == oid)
+    pub fn find_catalog_projection_with_oid(&self, oid: u32) -> Option<&CatalogProjection> {
+        self.catalog_projections
+            .iter()
+            .find(|projection| projection.oid == oid)
     }
 
-    pub fn find_cube_table_with_name(&self, name: &str) -> Option<&CubeMetaTable> {
-        self.tables.iter().find(|table| table.name == name)
+    pub fn find_catalog_projection(&self, schema: &str, name: &str) -> Option<&CatalogProjection> {
+        self.catalog_projections
+            .iter()
+            .find(|projection| projection.schema == schema && projection.name == name)
     }
 
     pub fn cube_has_join(&self, cube_name: &str, join_name: &str) -> bool {
@@ -264,7 +278,7 @@ mod tests {
     use crate::transport::CubeMetaType;
 
     #[test]
-    fn test_find_tables() {
+    fn test_legacy_models_create_public_catalog_projections() {
         let test_cubes = vec![
             CubeMeta {
                 name: "test1".to_string(),
@@ -300,13 +314,22 @@ mod tests {
         let test_context =
             MetaContext::new(test_cubes, HashMap::new(), HashMap::new(), Uuid::new_v4());
 
-        match test_context.find_cube_table_with_oid(18000) {
+        assert_eq!(2, test_context.catalog_projections.len());
+        assert!(test_context.catalog_projections.iter().all(|projection| {
+            projection.schema == CATALOG_PUBLIC_SCHEMA_NAME
+                && projection.schema_oid == CATALOG_PUBLIC_SCHEMA_OID
+        }));
+
+        match test_context.find_catalog_projection_with_oid(18000) {
             Some(table) => assert_eq!(18000, table.oid),
             _ => panic!("wrong oid!"),
         }
 
-        match test_context.find_cube_table_with_name("test2") {
-            Some(table) => assert_eq!(18005, table.oid),
+        match test_context.find_catalog_projection(CATALOG_PUBLIC_SCHEMA_NAME, "test2") {
+            Some(table) => {
+                assert_eq!(18005, table.oid);
+                assert_eq!(CATALOG_PUBLIC_SCHEMA_OID, table.schema_oid);
+            }
             _ => panic!("wrong name!"),
         }
     }

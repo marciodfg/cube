@@ -1,6 +1,6 @@
 use std::{any::Any, sync::Arc};
 
-use crate::transport::CubeMetaTable;
+use crate::transport::CatalogProjection;
 use async_trait::async_trait;
 use datafusion::{
     arrow::{
@@ -136,11 +136,16 @@ pub struct RedshiftSvvTableInfoProvider {
 }
 
 impl RedshiftSvvTableInfoProvider {
-    pub fn new(db_name: impl AsRef<str>, cube_tables: &Vec<CubeMetaTable>) -> Self {
-        let mut builder = RedshiftSvvTableInfoBuilder::new(cube_tables.len());
+    pub fn new(db_name: impl AsRef<str>, catalog_projections: &[CatalogProjection]) -> Self {
+        let mut builder = RedshiftSvvTableInfoBuilder::new(catalog_projections.len());
 
-        for cube in cube_tables {
-            builder.add_table(&db_name, "public", cube.oid, &cube.name);
+        for projection in catalog_projections {
+            builder.add_table(
+                &db_name,
+                &projection.schema,
+                projection.oid,
+                &projection.name,
+            );
         }
 
         Self {

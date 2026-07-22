@@ -1,7 +1,7 @@
 use std::{any::Any, sync::Arc};
 
+use crate::transport::CatalogProjection;
 use async_trait::async_trait;
-use cubeclient::models::V1CubeMeta;
 use datafusion::{
     arrow::{
         array::{Array, ArrayRef, StringBuilder},
@@ -119,15 +119,15 @@ pub struct InfoSchemaTableProvider {
 }
 
 impl InfoSchemaTableProvider {
-    pub fn new(db_name: &str, cubes: &Vec<V1CubeMeta>) -> Self {
+    pub fn new(db_name: &str, catalog_projections: &[CatalogProjection]) -> Self {
         let mut builder = InformationSchemaTablesBuilder::new();
         // information_schema
         builder.add_table(db_name, "information_schema", "tables", "VIEW");
         builder.add_table(db_name, "information_schema", "columns", "VIEW");
         builder.add_table(db_name, "information_schema", "pg_tables", "VIEW");
 
-        for cube in cubes {
-            builder.add_table(db_name, "public", &cube.name, "BASE TABLE");
+        for projection in catalog_projections {
+            builder.add_table(db_name, &projection.schema, &projection.name, "BASE TABLE");
         }
 
         Self {

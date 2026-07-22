@@ -1,8 +1,7 @@
 use std::{any::Any, sync::Arc};
 
-use crate::transport::V1CubeMetaExt;
+use crate::transport::CatalogProjection;
 use async_trait::async_trait;
-use cubeclient::models::V1CubeMeta;
 use datafusion::{
     arrow::{
         array::{Array, ArrayRef, StringBuilder},
@@ -80,17 +79,21 @@ pub struct InfoSchemaRoleColumnGrantsProvider {
 }
 
 impl InfoSchemaRoleColumnGrantsProvider {
-    pub fn new(db_name: &str, current_user: &str, cubes: &Vec<V1CubeMeta>) -> Self {
-        let mut builder = InfoSchemaRoleColumnGrantsBuilder::new(cubes.len());
+    pub fn new(
+        db_name: &str,
+        current_user: &str,
+        catalog_projections: &[CatalogProjection],
+    ) -> Self {
+        let mut builder = InfoSchemaRoleColumnGrantsBuilder::new(catalog_projections.len());
 
-        for cube in cubes {
-            for column in cube.get_columns() {
+        for projection in catalog_projections {
+            for column in &projection.columns {
                 builder.add_column(
                     current_user,
                     db_name,
-                    "public",
-                    cube.name.clone(),
-                    &column.get_name(),
+                    &projection.schema,
+                    &projection.name,
+                    &column.name,
                     &"SELECT",
                 );
             }

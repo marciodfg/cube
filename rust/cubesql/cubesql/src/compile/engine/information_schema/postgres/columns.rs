@@ -13,7 +13,7 @@ use datafusion::{
     physical_plan::{memory::MemoryExec, ExecutionPlan},
 };
 
-use crate::transport::{CubeColumn, CubeMeta, V1CubeMetaExt};
+use crate::transport::{CatalogProjection, CubeMetaColumn};
 
 use super::{
     ext::CubeColumnPostgresExt,
@@ -80,7 +80,7 @@ impl InformationSchemaColumnsBuilder {
         catalog_name: impl AsRef<str>,
         schema_name: impl AsRef<str>,
         table_name: impl AsRef<str>,
-        column: &CubeColumn,
+        column: &CubeMetaColumn,
         ordinal_position: u32,
     ) {
         self.catalog_names
@@ -90,7 +90,7 @@ impl InformationSchemaColumnsBuilder {
             .append_value(schema_name.as_ref())
             .unwrap();
         self.table_names.append_value(table_name.as_ref()).unwrap();
-        self.column_names.append_value(column.get_name()).unwrap();
+        self.column_names.append_value(&column.name).unwrap();
         self.ordinal_positions
             .append_value(ordinal_position)
             .unwrap();
@@ -311,14 +311,20 @@ pub struct InfoSchemaColumnsProvider {
 }
 
 impl InfoSchemaColumnsProvider {
-    pub fn new(db_name: &str, cubes: &Vec<CubeMeta>) -> Self {
+    pub fn new(db_name: &str, catalog_projections: &[CatalogProjection]) -> Self {
         let mut builder = InformationSchemaColumnsBuilder::new();
 
-        for cube in cubes {
+        for projection in catalog_projections {
             let mut position = 1;
 
-            for column in cube.get_columns() {
-                builder.add_column(db_name, "public", cube.name.clone(), &column, position);
+            for column in &projection.columns {
+                builder.add_column(
+                    db_name,
+                    &projection.schema,
+                    &projection.name,
+                    column,
+                    position,
+                );
 
                 position += 1;
             }

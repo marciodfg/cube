@@ -1,6 +1,6 @@
 use std::{any::Any, sync::Arc};
 
-use crate::{sql::ColumnType, transport::CubeMetaTable};
+use crate::{sql::ColumnType, transport::CatalogProjection};
 use async_trait::async_trait;
 use datafusion::{
     arrow::{
@@ -166,7 +166,7 @@ pub struct PgCatalogAttributeProvider {
 }
 
 impl PgCatalogAttributeProvider {
-    pub fn new(tables: &Vec<CubeMetaTable>) -> Self {
+    pub fn new(tables: &[CatalogProjection]) -> Self {
         let mut builder = PgCatalogAttributeBuilder::new();
 
         for table in tables {

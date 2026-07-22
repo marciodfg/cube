@@ -1,5 +1,6 @@
-use std::{any::Any, sync::Arc};
+use std::{any::Any, collections::BTreeSet, sync::Arc};
 
+use crate::transport::CatalogProjection;
 use async_trait::async_trait;
 use datafusion::{
     arrow::{
@@ -77,10 +78,16 @@ pub struct InfoSchemaSchemataProvider {
 }
 
 impl InfoSchemaSchemataProvider {
-    pub fn new(db_name: &str) -> Self {
-        let mut builder = InformationSchemaSchemataBuilder::new(4);
+    pub fn new(db_name: &str, catalog_projections: &[CatalogProjection]) -> Self {
+        let mut builder = InformationSchemaSchemataBuilder::new(4 + catalog_projections.len());
 
-        builder.add_schema(db_name, "public", "pg_database_owner");
+        let user_schemas: BTreeSet<_> = catalog_projections
+            .iter()
+            .map(|projection| projection.schema.as_str())
+            .collect();
+        for schema in user_schemas {
+            builder.add_schema(db_name, schema, "pg_database_owner");
+        }
         builder.add_schema(db_name, "information_schema", "postgres");
         builder.add_schema(db_name, "pg_catalog", "postgres");
         builder.add_schema(db_name, "pg_toast", "postgres");
@@ -133,5 +140,48 @@ impl TableProvider for InfoSchemaSchemataProvider {
         _filter: &Expr,
     ) -> Result<TableProviderFilterPushDown, DataFusionError> {
         Ok(TableProviderFilterPushDown::Unsupported)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use datafusion::arrow::array::{Array, StringArray};
+
+    use super::*;
+
+    fn projection(schema: &str) -> CatalogProjection {
+        CatalogProjection {
+            oid: 18000,
+            record_oid: 18001,
+            array_handler_oid: 18002,
+            schema: schema.to_string(),
+            schema_oid: 2200,
+            name: "orders".to_string(),
+            description: None,
+            columns: vec![],
+        }
+    }
+
+    fn schema_names(provider: InfoSchemaSchemataProvider) -> Vec<String> {
+        provider.data[1]
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap()
+            .iter()
+            .flatten()
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn visible_user_schemata_come_only_from_catalog_projections() {
+        let empty_schemata = schema_names(InfoSchemaSchemataProvider::new("db", &[]));
+        assert!(!empty_schemata.contains(&"public".to_string()));
+
+        let legacy_schemata = schema_names(InfoSchemaSchemataProvider::new(
+            "db",
+            &[projection("public")],
+        ));
+        assert!(legacy_schemata.contains(&"public".to_string()));
     }
 }

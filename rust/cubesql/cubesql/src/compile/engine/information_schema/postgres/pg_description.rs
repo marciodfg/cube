@@ -15,7 +15,7 @@ use datafusion::{
 };
 
 use crate::{
-    compile::engine::information_schema::postgres::PG_CLASS_CLASS_OID, transport::CubeMetaTable,
+    compile::engine::information_schema::postgres::PG_CLASS_CLASS_OID, transport::CatalogProjection,
 };
 
 /// See https://www.postgresql.org/docs/16/catalog-pg-description.html
@@ -81,7 +81,7 @@ pub struct PgCatalogDescriptionProvider {
 }
 
 impl PgCatalogDescriptionProvider {
-    pub fn new(tables: &[CubeMetaTable]) -> Self {
+    pub fn new(tables: &[CatalogProjection]) -> Self {
         let mut builder = PgCatalogDescriptionBuilder::new();
 
         for table in tables {

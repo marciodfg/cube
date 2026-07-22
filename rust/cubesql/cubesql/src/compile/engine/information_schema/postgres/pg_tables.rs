@@ -1,7 +1,6 @@
 use std::{any::Any, sync::Arc};
 
 use async_trait::async_trait;
-use cubeclient::models::V1CubeMeta;
 use datafusion::{
     arrow::{
         array::{Array, ArrayRef, StringBuilder},
@@ -15,6 +14,7 @@ use datafusion::{
 };
 
 use super::utils::{new_boolean_array_with_placeholder, new_string_array_with_placeholder};
+use crate::transport::CatalogProjection;
 
 struct PgCatalogTablesBuilder {
     schemanames: StringBuilder,
@@ -80,11 +80,11 @@ pub struct PgCatalogTableProvider {
 }
 
 impl PgCatalogTableProvider {
-    pub fn new(current_user: &str, cubes: &Vec<V1CubeMeta>) -> Self {
+    pub fn new(current_user: &str, catalog_projections: &[CatalogProjection]) -> Self {
         let mut builder = PgCatalogTablesBuilder::new();
 
-        for cube in cubes {
-            builder.add_table("public", cube.name.clone(), current_user);
+        for projection in catalog_projections {
+            builder.add_table(&projection.schema, &projection.name, current_user);
         }
 
         Self {

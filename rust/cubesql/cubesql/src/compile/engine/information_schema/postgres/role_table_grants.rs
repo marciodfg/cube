@@ -1,7 +1,7 @@
 use std::{any::Any, sync::Arc};
 
+use crate::transport::CatalogProjection;
 use async_trait::async_trait;
-use cubeclient::models::V1CubeMeta;
 use datafusion::{
     arrow::{
         array::{Array, ArrayRef, StringBuilder},
@@ -78,11 +78,21 @@ pub struct InfoSchemaRoleTableGrantsProvider {
 }
 
 impl InfoSchemaRoleTableGrantsProvider {
-    pub fn new(db_name: &str, current_user: &str, cubes: &Vec<V1CubeMeta>) -> Self {
-        let mut builder = InfoSchemaRoleTableGrantsBuilder::new(cubes.len());
+    pub fn new(
+        db_name: &str,
+        current_user: &str,
+        catalog_projections: &[CatalogProjection],
+    ) -> Self {
+        let mut builder = InfoSchemaRoleTableGrantsBuilder::new(catalog_projections.len());
 
-        for cube in cubes {
-            builder.add_table(current_user, db_name, "public", cube.name.clone(), "SELECT");
+        for projection in catalog_projections {
+            builder.add_table(
+                current_user,
+                db_name,
+                &projection.schema,
+                &projection.name,
+                "SELECT",
+            );
         }
 
         Self {

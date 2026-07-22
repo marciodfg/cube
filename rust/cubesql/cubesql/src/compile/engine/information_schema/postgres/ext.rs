@@ -1,20 +1,14 @@
-use crate::{sql::ColumnType, transport::CubeColumn};
+use crate::{
+    sql::ColumnType,
+    transport::{CubeColumn, CubeMetaColumn},
+};
 
 pub trait CubeColumnPostgresExt {
-    fn get_data_type(&self) -> String;
-    fn get_udt_name(&self) -> String;
-    fn is_nullable(&self) -> String;
-    fn udt_schema(&self) -> String;
-    fn get_numeric_precision(&self) -> Option<u32>;
-    fn numeric_precision_radix(&self) -> Option<u32>;
-    fn numeric_scale(&self) -> Option<u32>;
-    fn datetime_precision(&self) -> Option<u32>;
-    fn char_octet_length(&self) -> Option<u32>;
-}
+    fn column_type(&self) -> ColumnType;
+    fn column_can_be_null(&self) -> bool;
 
-impl CubeColumnPostgresExt for CubeColumn {
     fn get_data_type(&self) -> String {
-        match self.get_column_type() {
+        match self.column_type() {
             ColumnType::Timestamp => "timestamp without time zone".to_string(),
             ColumnType::Int64 => "bigint".to_string(),
             ColumnType::Double => "numeric".to_string(),
@@ -24,7 +18,7 @@ impl CubeColumnPostgresExt for CubeColumn {
     }
 
     fn get_udt_name(&self) -> String {
-        match self.get_column_type() {
+        match self.column_type() {
             ColumnType::Timestamp => "timestamp".to_string(),
             ColumnType::Int64 => "int8".to_string(),
             ColumnType::Double => "numeric".to_string(),
@@ -34,26 +28,27 @@ impl CubeColumnPostgresExt for CubeColumn {
     }
 
     fn is_nullable(&self) -> String {
-        if self.sql_can_be_null() {
-            return "YES".to_string();
+        if self.column_can_be_null() {
+            "YES"
         } else {
-            return "NO".to_string();
+            "NO"
         }
+        .to_string()
     }
 
     fn udt_schema(&self) -> String {
-        return "pg_catalog".to_string();
+        "pg_catalog".to_string()
     }
 
     fn get_numeric_precision(&self) -> Option<u32> {
-        match self.get_column_type() {
+        match self.column_type() {
             ColumnType::Int64 => Some(64),
             _ => None,
         }
     }
 
     fn numeric_precision_radix(&self) -> Option<u32> {
-        match self.get_column_type() {
+        match self.column_type() {
             ColumnType::Int64 => Some(2),
             ColumnType::Double => Some(10),
             _ => None,
@@ -61,23 +56,43 @@ impl CubeColumnPostgresExt for CubeColumn {
     }
 
     fn numeric_scale(&self) -> Option<u32> {
-        match self.get_column_type() {
+        match self.column_type() {
             ColumnType::Int64 => Some(0),
             _ => None,
         }
     }
 
     fn datetime_precision(&self) -> Option<u32> {
-        match self.get_column_type() {
+        match self.column_type() {
             ColumnType::Timestamp => Some(6),
             _ => None,
         }
     }
 
     fn char_octet_length(&self) -> Option<u32> {
-        match self.get_column_type() {
+        match self.column_type() {
             ColumnType::String => Some(1073741824),
             _ => None,
         }
+    }
+}
+
+impl CubeColumnPostgresExt for CubeColumn {
+    fn column_type(&self) -> ColumnType {
+        self.get_column_type()
+    }
+
+    fn column_can_be_null(&self) -> bool {
+        self.sql_can_be_null()
+    }
+}
+
+impl CubeColumnPostgresExt for CubeMetaColumn {
+    fn column_type(&self) -> ColumnType {
+        self.column_type.clone()
+    }
+
+    fn column_can_be_null(&self) -> bool {
+        self.can_be_null
     }
 }

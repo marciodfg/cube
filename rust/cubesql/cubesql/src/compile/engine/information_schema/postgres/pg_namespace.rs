@@ -1,7 +1,8 @@
-use std::{any::Any, sync::Arc};
+use std::{any::Any, collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
 
+use crate::transport::{CatalogProjection, CATALOG_PUBLIC_SCHEMA_OID};
 use datafusion::{
     arrow::{
         array::{Array, ArrayRef, ListBuilder, StringBuilder, UInt32Builder},
@@ -19,11 +20,11 @@ pub const PG_NAMESPACE_CATALOG_OID: u32 = 11;
 // https://github.com/postgres/postgres/blob/REL_16_4/src/include/catalog/pg_namespace.dat#L18-L20
 pub const PG_NAMESPACE_TOAST_OID: u32 = 99;
 // https://github.com/postgres/postgres/blob/REL_16_4/src/include/catalog/pg_namespace.dat#L21-L24
-pub const PG_NAMESPACE_PUBLIC_OID: u32 = 2200;
+pub const PG_NAMESPACE_PUBLIC_OID: u32 = CATALOG_PUBLIC_SCHEMA_OID;
 
 struct PgNamespace {
     oid: u32,
-    nspname: &'static str,
+    nspname: String,
     nspowner: u32,
 }
 
@@ -50,7 +51,7 @@ impl PgCatalogNamespaceBuilder {
 
     fn add_namespace(&mut self, ns: &PgNamespace) {
         self.oid.append_value(ns.oid).unwrap();
-        self.nspname.append_value(ns.nspname).unwrap();
+        self.nspname.append_value(&ns.nspname).unwrap();
         self.nspowner.append_value(ns.nspowner).unwrap();
         self.nspacl.append(false).unwrap();
         self.xmin.append_value(1).unwrap();
@@ -74,27 +75,85 @@ pub struct PgCatalogNamespaceProvider {
 }
 
 impl PgCatalogNamespaceProvider {
-    pub fn new() -> Self {
+    pub fn new(catalog_projections: &[CatalogProjection]) -> Self {
         let mut builder = PgCatalogNamespaceBuilder::new();
+        let mut user_schemas: BTreeMap<_, _> = catalog_projections
+            .iter()
+            .map(|projection| (projection.schema.as_str(), projection.schema_oid))
+            .collect();
+
         builder.add_namespace(&PgNamespace {
             oid: PG_NAMESPACE_CATALOG_OID,
-            nspname: "pg_catalog",
+            nspname: "pg_catalog".to_string(),
             nspowner: 10,
         });
-        builder.add_namespace(&PgNamespace {
-            oid: PG_NAMESPACE_PUBLIC_OID,
-            nspname: "public",
-            nspowner: 10,
-        });
+        if let Some(public_oid) = user_schemas.remove("public") {
+            builder.add_namespace(&PgNamespace {
+                oid: public_oid,
+                nspname: "public".to_string(),
+                nspowner: 10,
+            });
+        }
         builder.add_namespace(&PgNamespace {
             oid: 13000,
-            nspname: "information_schema",
+            nspname: "information_schema".to_string(),
             nspowner: 10,
         });
+
+        for (name, oid) in user_schemas {
+            builder.add_namespace(&PgNamespace {
+                oid,
+                nspname: name.to_string(),
+                nspowner: 10,
+            });
+        }
 
         Self {
             data: Arc::new(builder.finish()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use datafusion::arrow::array::{Array, StringArray};
+
+    use super::*;
+
+    fn projection(schema: &str, schema_oid: u32) -> CatalogProjection {
+        CatalogProjection {
+            oid: 18000,
+            record_oid: 18001,
+            array_handler_oid: 18002,
+            schema: schema.to_string(),
+            schema_oid,
+            name: "orders".to_string(),
+            description: None,
+            columns: vec![],
+        }
+    }
+
+    fn namespace_names(provider: PgCatalogNamespaceProvider) -> Vec<String> {
+        provider.data[1]
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap()
+            .iter()
+            .flatten()
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn visible_user_namespaces_come_only_from_catalog_projections() {
+        let empty_namespaces = namespace_names(PgCatalogNamespaceProvider::new(&[]));
+        assert!(!empty_namespaces.contains(&"public".to_string()));
+
+        let legacy_namespaces = namespace_names(PgCatalogNamespaceProvider::new(&[projection(
+            "public",
+            PG_NAMESPACE_PUBLIC_OID,
+        )]));
+        assert!(legacy_namespaces.contains(&"public".to_string()));
     }
 }
 

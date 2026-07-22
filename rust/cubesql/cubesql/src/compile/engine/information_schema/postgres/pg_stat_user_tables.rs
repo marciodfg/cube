@@ -2,7 +2,7 @@ use std::{any::Any, sync::Arc};
 
 use async_trait::async_trait;
 
-use crate::transport::CubeMetaTable;
+use crate::transport::CatalogProjection;
 use datafusion::{
     arrow::{
         array::{
@@ -135,11 +135,11 @@ pub struct PgCatalogStatUserTablesProvider {
 
 // https://www.postgresql.org/docs/14/monitoring-stats.html#MONITORING-PG-STAT-ALL-TABLES-VIEW
 impl PgCatalogStatUserTablesProvider {
-    pub fn new(cube_tables: &[CubeMetaTable]) -> Self {
-        let mut builder = PgCatalogStatUserTablesBuilder::new(cube_tables.len());
+    pub fn new(catalog_projections: &[CatalogProjection]) -> Self {
+        let mut builder = PgCatalogStatUserTablesBuilder::new(catalog_projections.len());
 
-        for table in cube_tables.iter() {
-            builder.add_table(table.oid, "public", &table.name);
+        for table in catalog_projections {
+            builder.add_table(table.oid, &table.schema, &table.name);
         }
 
         Self {

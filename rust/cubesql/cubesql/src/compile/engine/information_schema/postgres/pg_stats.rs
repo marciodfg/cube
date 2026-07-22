@@ -1,6 +1,6 @@
 use std::{any::Any, sync::Arc};
 
-use crate::transport::CubeMetaTable;
+use crate::transport::CatalogProjection;
 use async_trait::async_trait;
 use datafusion::{
     arrow::{
@@ -109,13 +109,13 @@ pub struct PgCatalogStatsProvider {
 }
 
 impl PgCatalogStatsProvider {
-    pub fn new(tables: &[CubeMetaTable]) -> Self {
+    pub fn new(tables: &[CatalogProjection]) -> Self {
         let mut builder = PgCatalogStatsBuilder::new();
 
         for table in tables {
             for column in &table.columns {
                 builder.add_stats(
-                    "public",
+                    &table.schema,
                     &table.name,
                     &column.name,
                     column.column_type.avg_size(),

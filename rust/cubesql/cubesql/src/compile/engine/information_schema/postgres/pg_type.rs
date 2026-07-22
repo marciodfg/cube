@@ -18,10 +18,7 @@ use datafusion::{
 };
 use pg_srv::PgType;
 
-use crate::{
-    compile::engine::information_schema::postgres::PG_NAMESPACE_PUBLIC_OID,
-    transport::CubeMetaTable,
-};
+use crate::transport::CatalogProjection;
 
 struct PgCatalogTypeBuilder {
     oid: UInt32Builder,
@@ -188,7 +185,7 @@ pub struct PgCatalogTypeProvider {
 }
 
 impl PgCatalogTypeProvider {
-    pub fn new(tables: &Vec<CubeMetaTable>) -> Self {
+    pub fn new(tables: &[CatalogProjection]) -> Self {
         let mut builder = PgCatalogTypeBuilder::new();
 
         for typ in PgType::get_all() {
@@ -200,7 +197,7 @@ impl PgCatalogTypeProvider {
                 oid: table.record_oid,
                 typname: table.name.as_str(),
                 regtype: table.name.as_str(),
-                typnamespace: PG_NAMESPACE_PUBLIC_OID,
+                typnamespace: table.schema_oid,
                 typowner: 10,
                 typlen: -1,
                 typbyval: false,
@@ -226,7 +223,7 @@ impl PgCatalogTypeProvider {
                 oid: table.array_handler_oid,
                 typname: format!("_{}", table.name).as_str(),
                 regtype: format!("{}[]", table.name).as_str(),
-                typnamespace: PG_NAMESPACE_PUBLIC_OID,
+                typnamespace: table.schema_oid,
                 typowner: 10,
                 typlen: -1,
                 typbyval: false,

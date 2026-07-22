@@ -17,10 +17,8 @@ use datafusion::{
 use pg_srv::PgTypeId;
 
 use crate::{
-    compile::engine::information_schema::postgres::{
-        PG_NAMESPACE_CATALOG_OID, PG_NAMESPACE_PUBLIC_OID,
-    },
-    transport::CubeMetaTable,
+    compile::engine::information_schema::postgres::PG_NAMESPACE_CATALOG_OID,
+    transport::CatalogProjection,
 };
 
 // See https://github.com/postgres/postgres/blob/REL_16_4/src/include/catalog/pg_class.h#L32
@@ -215,7 +213,7 @@ pub struct PgCatalogClassProvider {
 }
 
 impl PgCatalogClassProvider {
-    pub fn new(cube_tables: &[CubeMetaTable]) -> Self {
+    pub fn new(catalog_projections: &[CatalogProjection]) -> Self {
         let mut builder = PgCatalogClassBuilder::new();
 
         // TODO add all pg_catalog tables to pg_class
@@ -240,11 +238,11 @@ impl PgCatalogClassProvider {
             relminmxid: 1,
         });
 
-        for table in cube_tables.iter() {
+        for table in catalog_projections {
             builder.add_class(&PgClass {
                 oid: table.oid,
                 relname: table.name.clone(),
-                relnamespace: PG_NAMESPACE_PUBLIC_OID,
+                relnamespace: table.schema_oid,
                 reltype: table.record_oid,
                 relam: 2,
                 relfilenode: 0,

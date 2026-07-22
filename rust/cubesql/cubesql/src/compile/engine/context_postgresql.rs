@@ -269,7 +269,7 @@ impl DatabaseProtocol {
                     "svv_tables" => {
                         return Some(Arc::new(RedshiftSvvTablesTableProvider::new(
                             &context.session_state.database().unwrap_or("db".to_string()),
-                            &context.meta.cubes,
+                            &context.meta.catalog_projections,
                         )))
                     }
                     "svv_external_schemas" => {
@@ -278,7 +278,7 @@ impl DatabaseProtocol {
                     "svv_table_info" => {
                         return Some(Arc::new(RedshiftSvvTableInfoProvider::new(
                             &context.session_state.database().unwrap_or("db".to_string()),
-                            &context.meta.tables,
+                            &context.meta.catalog_projections,
                         )))
                     }
                     "stv_slices" => return Some(Arc::new(RedshiftStvSlicesProvider::new())),
@@ -295,13 +295,13 @@ impl DatabaseProtocol {
                 "columns" => {
                     return Some(Arc::new(PostgresSchemaColumnsProvider::new(
                         &context.session_state.database().unwrap_or("db".to_string()),
-                        &context.meta.cubes,
+                        &context.meta.catalog_projections,
                     )))
                 }
                 "tables" => {
                     return Some(Arc::new(PostgresSchemaTableProvider::new(
                         &context.session_state.database().unwrap_or("db".to_string()),
-                        &context.meta.cubes,
+                        &context.meta.catalog_projections,
                     )))
                 }
                 "character_sets" => {
@@ -319,14 +319,14 @@ impl DatabaseProtocol {
                     return Some(Arc::new(PostgresInfoSchemaRoleTableGrantsProvider::new(
                         &context.session_state.database().unwrap_or("db".to_string()),
                         &context.session_state.user().unwrap_or("test".to_string()),
-                        &context.meta.cubes,
+                        &context.meta.catalog_projections,
                     )))
                 }
                 "role_column_grants" => {
                     return Some(Arc::new(PostgresInfoSchemaRoleColumnGrantsProvider::new(
                         &context.session_state.database().unwrap_or("db".to_string()),
                         &context.session_state.user().unwrap_or("test".to_string()),
-                        &context.meta.cubes,
+                        &context.meta.catalog_projections,
                     )))
                 }
                 "table_constraints" => {
@@ -339,6 +339,7 @@ impl DatabaseProtocol {
                 "schemata" => {
                     return Some(Arc::new(PostgresSchemaSchemataProvider::new(
                         &context.session_state.database().unwrap_or("db".to_string()),
+                        &context.meta.catalog_projections,
                     )))
                 }
                 "sql_implementation_info" => {
@@ -361,23 +362,31 @@ impl DatabaseProtocol {
                 "pg_tables" => {
                     return Some(Arc::new(PgCatalogTableProvider::new(
                         &context.session_state.user().unwrap_or("test".to_string()),
-                        &context.meta.cubes,
+                        &context.meta.catalog_projections,
                     )))
                 }
                 "pg_type" => {
-                    return Some(Arc::new(PgCatalogTypeProvider::new(&context.meta.tables)))
+                    return Some(Arc::new(PgCatalogTypeProvider::new(
+                        &context.meta.catalog_projections,
+                    )))
                 }
-                "pg_namespace" => return Some(Arc::new(PgCatalogNamespaceProvider::new())),
+                "pg_namespace" => {
+                    return Some(Arc::new(PgCatalogNamespaceProvider::new(
+                        &context.meta.catalog_projections,
+                    )))
+                }
                 "pg_range" => return Some(Arc::new(PgCatalogRangeProvider::new())),
                 "pg_attrdef" => return Some(Arc::new(PgCatalogAttrdefProvider::new())),
                 "pg_attribute" => {
                     return Some(Arc::new(PgCatalogAttributeProvider::new(
-                        &context.meta.tables,
+                        &context.meta.catalog_projections,
                     )))
                 }
                 "pg_index" => return Some(Arc::new(PgCatalogIndexProvider::new())),
                 "pg_class" => {
-                    return Some(Arc::new(PgCatalogClassProvider::new(&context.meta.tables)))
+                    return Some(Arc::new(PgCatalogClassProvider::new(
+                        &context.meta.catalog_projections,
+                    )))
                 }
                 "pg_collation" => return Some(Arc::new(PgCatalogCollationProvider::new())),
                 "pg_proc" => return Some(Arc::new(PgCatalogProcProvider::new())),
@@ -388,7 +397,7 @@ impl DatabaseProtocol {
                 }
                 "pg_description" => {
                     return Some(Arc::new(PgCatalogDescriptionProvider::new(
-                        &context.meta.tables,
+                        &context.meta.catalog_projections,
                     )))
                 }
                 "pg_constraint" => return Some(Arc::new(PgCatalogConstraintProvider::new())),
@@ -418,12 +427,14 @@ impl DatabaseProtocol {
                 }
                 "pg_statio_user_tables" => {
                     return Some(Arc::new(PgCatalogStatioUserTablesProvider::new(
-                        &context.meta.tables,
+                        &context.meta.catalog_projections,
                     )))
                 }
                 "pg_sequence" => return Some(Arc::new(PgCatalogSequenceProvider::new())),
                 "pg_stats" => {
-                    return Some(Arc::new(PgCatalogStatsProvider::new(&context.meta.tables)))
+                    return Some(Arc::new(PgCatalogStatsProvider::new(
+                        &context.meta.catalog_projections,
+                    )))
                 }
                 "pg_user" => {
                     return Some(Arc::new(PgCatalogUserProvider::new(
@@ -438,7 +449,7 @@ impl DatabaseProtocol {
                 "pg_views" => return Some(Arc::new(PgCatalogViewsProvider::new())),
                 "pg_stat_user_tables" => {
                     return Some(Arc::new(PgCatalogStatUserTablesProvider::new(
-                        &context.meta.tables,
+                        &context.meta.catalog_projections,
                     )))
                 }
                 "pg_shdescription" => return Some(Arc::new(PgCatalogShdescriptionProvider::new())),
