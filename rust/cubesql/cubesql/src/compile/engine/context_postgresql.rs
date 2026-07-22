@@ -253,14 +253,10 @@ impl DatabaseProtocol {
                 }
             }
             "public" => {
-                if let Some(cube) = context
-                    .meta
-                    .cubes
-                    .iter()
-                    .find(|c| c.name.eq_ignore_ascii_case(&table))
-                {
-                    return Some(Arc::new(CubeTableProvider::new(cube.clone())));
-                    // TODO .clone()
+                if let Some(projection) = context.meta.find_catalog_projection(&schema, &table) {
+                    if let Some(cube) = context.meta.find_cube_with_name(&projection.name) {
+                        return Some(Arc::new(CubeTableProvider::new(cube.clone())));
+                    }
                 };
 
                 // TODO: Move to pg_catalog, support SEARCH PATH.
@@ -483,9 +479,83 @@ impl DatabaseProtocol {
                 }
                 _ => return None,
             },
-            _ => return None,
+            _ => {
+                if let Some(projection) = context.meta.find_catalog_projection(&schema, &table) {
+                    if let Some(cube) = context.meta.find_cube_with_name(&projection.name) {
+                        return Some(Arc::new(CubeTableProvider::new(cube.clone())));
+                    }
+                }
+                return None;
+            }
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compile::test::{
+        get_test_meta, get_test_tenant_ctx_with_meta,
+        rewrite_engine::{create_test_postgresql_cube_context, query_to_logical_plan},
+    };
+    use crate::transport::CubeMetaType;
+
+    #[tokio::test]
+    async fn resolves_only_declared_schema_projections() {
+        let mut cube = get_test_meta().remove(0);
+        cube.sql_schemas = Some(vec!["sales".to_string(), "finance".to_string()]);
+        let mut view = cube.clone();
+        view.name = "date".to_string();
+        view.r#type = CubeMetaType::View;
+        let meta = get_test_tenant_ctx_with_meta(vec![cube, view]);
+        let context = create_test_postgresql_cube_context(meta).await.unwrap();
+
+        for schema in ["sales", "finance"] {
+            let provider = DatabaseProtocol::PostgreSQL
+                .get_postgres_provider(
+                    &context,
+                    datafusion::catalog::TableReference::Partial {
+                        schema,
+                        table: "KibanaSampleDataEcommerce",
+                    },
+                )
+                .expect("declared projection should resolve");
+            assert_eq!(
+                DatabaseProtocol::PostgreSQL
+                    .get_postgres_table_name(provider)
+                    .unwrap(),
+                "KibanaSampleDataEcommerce"
+            );
+        }
+
+        assert!(DatabaseProtocol::PostgreSQL
+            .get_postgres_provider(
+                &context,
+                datafusion::catalog::TableReference::Bare {
+                    table: "KibanaSampleDataEcommerce",
+                },
+            )
+            .is_none());
+        assert!(DatabaseProtocol::PostgreSQL
+            .get_postgres_provider(
+                &context,
+                datafusion::catalog::TableReference::Partial {
+                    schema: "public",
+                    table: "KibanaSampleDataEcommerce",
+                },
+            )
+            .is_none());
+
+        query_to_logical_plan(
+            "SELECT id FROM sales.KibanaSampleDataEcommerce".to_string(),
+            &context,
+        );
+        query_to_logical_plan(
+            "WITH selected_date AS (SELECT id FROM finance.date) SELECT id FROM selected_date"
+                .to_string(),
+            &context,
+        );
     }
 }

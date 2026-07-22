@@ -1,5 +1,9 @@
 use datafusion::{arrow::datatypes::DataType, logical_plan::Column};
-use std::{collections::HashMap, ops::RangeFrom, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    ops::RangeFrom,
+    sync::Arc,
+};
 use uuid::Uuid;
 
 use crate::{sql::ColumnType, transport::SqlGenerator};
@@ -8,6 +12,7 @@ use super::{CubeMeta, CubeMetaDimension, CubeMetaMeasure, V1CubeMetaExt};
 
 pub const CATALOG_PUBLIC_SCHEMA_NAME: &str = "public";
 pub const CATALOG_PUBLIC_SCHEMA_OID: u32 = 2200;
+const CATALOG_DYNAMIC_SCHEMA_OID_START: u32 = 18000;
 
 #[derive(Debug)]
 pub struct MetaContext {
@@ -88,16 +93,52 @@ impl MetaContext {
         data_source_to_sql_generator: HashMap<String, Arc<dyn SqlGenerator + Send + Sync>>,
         compiler_id: Uuid,
     ) -> Self {
-        // 18000 - max system table oid
-        let mut oid_iter: RangeFrom<u32> = 18000..;
-        let catalog_projections: Vec<CatalogProjection> = cubes
+        let custom_schemas: BTreeSet<String> = cubes
             .iter()
-            .map(|cube| CatalogProjection {
+            .flat_map(|cube| cube.sql_schemas.iter().flatten())
+            .filter(|schema| schema.as_str() != CATALOG_PUBLIC_SCHEMA_NAME)
+            .cloned()
+            .collect();
+        let mut schema_oids = HashMap::from([(
+            CATALOG_PUBLIC_SCHEMA_NAME.to_string(),
+            CATALOG_PUBLIC_SCHEMA_OID,
+        )]);
+        let mut next_schema_oid = CATALOG_DYNAMIC_SCHEMA_OID_START;
+        for schema in custom_schemas {
+            schema_oids.insert(schema, next_schema_oid);
+            next_schema_oid += 1;
+        }
+
+        // 18000 is above the system table OID range. Reserve dynamic namespace OIDs first so
+        // relation, record, array, and column OIDs cannot collide with them.
+        let mut projection_sources: Vec<(&CubeMeta, String)> = cubes
+            .iter()
+            .flat_map(|cube| {
+                let schemas = cube
+                    .sql_schemas
+                    .clone()
+                    .unwrap_or_else(|| vec![CATALOG_PUBLIC_SCHEMA_NAME.to_string()]);
+                schemas.into_iter().map(move |schema| (cube, schema))
+            })
+            .collect();
+        // Preserve the legacy public-only ordering exactly. Explicit projections, however, must
+        // have stable OIDs for the same visible metadata set even if the transport orders models
+        // differently.
+        if cubes.iter().any(|cube| cube.sql_schemas.is_some()) {
+            projection_sources.sort_by(|(left_cube, left_schema), (right_cube, right_schema)| {
+                (left_schema, &left_cube.name).cmp(&(right_schema, &right_cube.name))
+            });
+        }
+
+        let mut oid_iter: RangeFrom<u32> = next_schema_oid..;
+        let catalog_projections: Vec<CatalogProjection> = projection_sources
+            .into_iter()
+            .map(|(cube, schema)| CatalogProjection {
                 oid: oid_iter.next().unwrap_or(0),
                 record_oid: oid_iter.next().unwrap_or(0),
                 array_handler_oid: oid_iter.next().unwrap_or(0),
-                schema: CATALOG_PUBLIC_SCHEMA_NAME.to_string(),
-                schema_oid: CATALOG_PUBLIC_SCHEMA_OID,
+                schema_oid: schema_oids[&schema],
+                schema,
                 name: cube.name.clone(),
                 description: cube.description.clone(),
                 columns: cube
@@ -256,9 +297,10 @@ impl MetaContext {
     }
 
     pub fn find_catalog_projection(&self, schema: &str, name: &str) -> Option<&CatalogProjection> {
-        self.catalog_projections
-            .iter()
-            .find(|projection| projection.schema == schema && projection.name == name)
+        self.catalog_projections.iter().find(|projection| {
+            projection.schema.eq_ignore_ascii_case(schema)
+                && projection.name.eq_ignore_ascii_case(name)
+        })
     }
 
     pub fn cube_has_join(&self, cube_name: &str, join_name: &str) -> bool {
@@ -283,6 +325,7 @@ mod tests {
             CubeMeta {
                 name: "test1".to_string(),
                 description: None,
+                sql_schemas: None,
                 title: None,
                 r#type: CubeMetaType::Cube,
                 dimensions: vec![],
@@ -297,6 +340,7 @@ mod tests {
             CubeMeta {
                 name: "test2".to_string(),
                 description: None,
+                sql_schemas: None,
                 title: None,
                 r#type: CubeMetaType::Cube,
                 dimensions: vec![],
@@ -332,5 +376,66 @@ mod tests {
             }
             _ => panic!("wrong name!"),
         }
+    }
+
+    #[test]
+    fn declared_schemas_create_independent_catalog_projections() {
+        let cube = CubeMeta {
+            name: "date".to_string(),
+            description: None,
+            sql_schemas: Some(vec!["sales".to_string(), "finance".to_string()]),
+            title: None,
+            r#type: CubeMetaType::View,
+            dimensions: vec![],
+            measures: vec![],
+            segments: vec![],
+            joins: None,
+            folders: None,
+            nested_folders: None,
+            hierarchies: None,
+            meta: None,
+        };
+        let context = MetaContext::new(vec![cube], HashMap::new(), HashMap::new(), Uuid::new_v4());
+
+        let sales = context.find_catalog_projection("sales", "date").unwrap();
+        let finance = context.find_catalog_projection("finance", "date").unwrap();
+        assert_ne!(sales.oid, finance.oid);
+        assert_ne!(sales.record_oid, finance.record_oid);
+        assert_ne!(sales.array_handler_oid, finance.array_handler_oid);
+        assert_ne!(sales.schema_oid, finance.schema_oid);
+        assert_eq!(sales.schema_oid, CATALOG_DYNAMIC_SCHEMA_OID_START + 1);
+        assert_eq!(finance.schema_oid, CATALOG_DYNAMIC_SCHEMA_OID_START);
+        assert!(context.find_catalog_projection("public", "date").is_none());
+    }
+
+    #[test]
+    fn explicit_projection_oids_do_not_depend_on_metadata_order() {
+        let cube = |name: &str| CubeMeta {
+            name: name.to_string(),
+            description: None,
+            sql_schemas: Some(vec!["sales".to_string(), "finance".to_string()]),
+            title: None,
+            r#type: CubeMetaType::Cube,
+            dimensions: vec![],
+            measures: vec![],
+            segments: vec![],
+            joins: None,
+            folders: None,
+            nested_folders: None,
+            hierarchies: None,
+            meta: None,
+        };
+        let projections = |cubes| {
+            MetaContext::new(cubes, HashMap::new(), HashMap::new(), Uuid::new_v4())
+                .catalog_projections
+                .into_iter()
+                .map(|projection| (projection.schema, projection.name, projection.oid))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            projections(vec![cube("date"), cube("orders")]),
+            projections(vec![cube("orders"), cube("date")]),
+        );
     }
 }

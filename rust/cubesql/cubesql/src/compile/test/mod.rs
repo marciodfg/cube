@@ -60,6 +60,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
         CubeMeta {
             name: "KibanaSampleDataEcommerce".to_string(),
             description: Some("Sample data for tracking eCommerce orders from Kibana".to_string()),
+            sql_schemas: None,
             title: None,
             r#type: V1CubeMetaType::Cube,
             dimensions: vec![
@@ -208,6 +209,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
         CubeMeta {
             name: "Logs".to_string(),
             description: None,
+            sql_schemas: None,
             title: None,
             r#type: V1CubeMetaType::Cube,
             dimensions: vec![
@@ -268,6 +270,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
         CubeMeta {
             name: "NumberCube".to_string(),
             description: None,
+            sql_schemas: None,
             title: None,
             r#type: V1CubeMetaType::Cube,
             dimensions: vec![],
@@ -294,6 +297,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
         CubeMeta {
             name: "WideCube".to_string(),
             description: None,
+            sql_schemas: None,
             title: None,
             r#type: V1CubeMetaType::Cube,
             dimensions: (0..100)
@@ -398,6 +402,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
         CubeMeta {
             name: "MultiTypeCube".to_string(),
             description: Some("Test cube with a little bit of everything".to_string()),
+            sql_schemas: None,
             title: None,
             r#type: V1CubeMetaType::Cube,
             dimensions: (0..10)
@@ -553,6 +558,7 @@ pub fn get_string_cube_meta() -> Vec<CubeMeta> {
     vec![CubeMeta {
         name: "StringCube".to_string(),
         description: None,
+        sql_schemas: None,
         title: None,
         r#type: V1CubeMetaType::Cube,
         dimensions: vec![],
@@ -582,6 +588,7 @@ pub fn get_sixteen_char_member_cube() -> Vec<CubeMeta> {
     vec![CubeMeta {
         name: "SixteenChar".to_string(),
         description: None,
+        sql_schemas: None,
         title: None,
         r#type: V1CubeMetaType::Cube,
         dimensions: vec![],

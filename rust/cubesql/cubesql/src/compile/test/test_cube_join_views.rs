@@ -54,6 +54,7 @@ fn views_meta() -> Vec<CubeMeta> {
         CubeMeta {
             name: "customers_view".to_string(),
             description: None,
+            sql_schemas: None,
             title: None,
             r#type: V1CubeMetaType::View,
             dimensions: vec![
@@ -79,6 +80,7 @@ fn views_meta() -> Vec<CubeMeta> {
         CubeMeta {
             name: "orders_view".to_string(),
             description: None,
+            sql_schemas: None,
             title: None,
             r#type: V1CubeMetaType::View,
             dimensions: vec![
@@ -98,6 +100,7 @@ fn views_meta() -> Vec<CubeMeta> {
         CubeMeta {
             name: "returns_view".to_string(),
             description: None,
+            sql_schemas: None,
             title: None,
             r#type: V1CubeMetaType::View,
             dimensions: vec![dimension(
@@ -115,6 +118,7 @@ fn views_meta() -> Vec<CubeMeta> {
         CubeMeta {
             name: "payments_view".to_string(),
             description: None,
+            sql_schemas: None,
             title: None,
             r#type: V1CubeMetaType::View,
             dimensions: vec![dimension(
