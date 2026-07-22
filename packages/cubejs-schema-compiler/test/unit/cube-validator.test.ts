@@ -120,6 +120,44 @@ describe('Cube Validation', () => {
     expect(validationResult.error).toBeTruthy();
   });
 
+  it('accepts sqlSchemas on cubes and views', async () => {
+    const cubeValidator = new CubeValidator(new CubeSymbols());
+    const reporter = new ConsoleErrorReporter();
+
+    expect(cubeValidator.validate({
+      name: 'orders',
+      sql: () => 'SELECT * FROM orders',
+      sqlSchemas: ['public', 'sales'],
+      fileName: 'orders.js',
+    }, reporter).error).toBeFalsy();
+
+    expect(cubeValidator.validate({
+      name: 'date',
+      isView: true,
+      sqlSchemas: ['sales', 'finance'],
+      fileName: 'date.js',
+    }, reporter).error).toBeFalsy();
+  });
+
+  it.each([
+    { sqlSchemas: [] },
+    { sqlSchemas: ['sales', 'sales'] },
+    { sqlSchemas: ['Sales'] },
+    { sqlSchemas: ['information_schema'] },
+    { sqlSchemas: ['pg_custom'] },
+    { sqlSchemas: ['a'.repeat(64)] },
+  ])('rejects invalid sqlSchemas: %o', async (schema) => {
+    const cubeValidator = new CubeValidator(new CubeSymbols());
+    const validationResult = cubeValidator.validate({
+      name: 'orders',
+      sql: () => 'SELECT * FROM orders',
+      fileName: 'orders.js',
+      ...schema,
+    }, new ConsoleErrorReporter());
+
+    expect(validationResult.error).toBeTruthy();
+  });
+
   it('view defined by includes - correct', async () => {
     const cubeValidator = new CubeValidator(new CubeSymbols());
     const cube = {

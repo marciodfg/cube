@@ -33,6 +33,23 @@ export const nonStringFields = new Set([
 
 const identifierRegex = /^[_a-zA-Z][_a-zA-Z0-9]*$/;
 
+const sqlSchemaIdentifierRegex = /^[_a-z][_a-z0-9]*$/;
+
+const sqlSchemaName = Joi.string().strict()
+  .pattern(sqlSchemaIdentifierRegex, 'lower-case PostgreSQL identifier')
+  .max(63)
+  .custom((value, helper) => {
+    if (value === 'pg_catalog' || value === 'information_schema' || value.startsWith('pg_')) {
+      return helper.message({
+        custom: `(${formatStatePath(helper.state)} = ${value}) is a reserved SQL schema name`
+      });
+    }
+
+    return value;
+  });
+
+const sqlSchemas = Joi.array().items(sqlSchemaName).min(1).unique();
+
 const identifier = Joi.string().regex(identifierRegex, 'identifier');
 
 function formatStatePath(state: Joi.State): string {
@@ -1172,6 +1189,7 @@ const baseSchema = {
   rewriteQueries: Joi.boolean().strict(),
   shown: Joi.boolean().strict(),
   public: Joi.boolean().strict(),
+  sqlSchemas,
   meta: Joi.any(),
   joins: Joi.alternatives([
     Joi.object().pattern(identifierRegex, Joi.object().keys({

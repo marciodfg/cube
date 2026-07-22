@@ -206,6 +206,9 @@ export interface CubeDefinition {
   // eslint-disable-next-line camelcase
   sql_table?: string | ((...args: any[]) => string);
   sqlTable?: string | ((...args: any[]) => string);
+  // eslint-disable-next-line camelcase
+  sql_schemas?: string[];
+  sqlSchemas?: string[];
   dataSource?: string;
   measures?: Record<string, CubeSymbolDefinition>;
   dimensions?: Record<string, CubeSymbolDefinition>;

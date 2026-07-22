@@ -11,6 +11,63 @@ import {
 const CUBE_COMPONENTS = ['dimensions', 'measures', 'segments', 'hierarchies', 'preAggregations', 'joins'];
 
 describe('Schema Testing', () => {
+  describe('SQL schema projections', () => {
+    it('emits declared schemas and omits the field for legacy models', async () => {
+      const { compiler, metaTransformer } = prepareJsCompiler(`
+        cube('orders', {
+          sql: 'SELECT * FROM orders',
+          sqlSchemas: ['public', 'sales'],
+          measures: { count: { type: 'count' } },
+          dimensions: { id: { sql: 'id', type: 'number', primaryKey: true } }
+        });
+        cube('legacy', {
+          sql: 'SELECT * FROM legacy',
+          measures: { count: { type: 'count' } },
+          dimensions: { id: { sql: 'id', type: 'number', primaryKey: true } }
+        });
+        view('date', {
+          sqlSchemas: ['sales', 'finance'],
+          cubes: [{ joinPath: orders, includes: '*' }]
+        });
+        view('inherited_date', { extends: date });
+        view('replacement_date', { extends: date, sqlSchemas: ['analytics'] });
+      `);
+
+      await compiler.compile();
+
+      expect(metaTransformer.cubes.find(c => c.config.name === 'orders')?.config.sqlSchemas)
+        .toEqual(['public', 'sales']);
+      expect(metaTransformer.cubes.find(c => c.config.name === 'date')?.config.sqlSchemas)
+        .toEqual(['sales', 'finance']);
+      expect(metaTransformer.cubes.find(c => c.config.name === 'inherited_date')?.config.sqlSchemas)
+        .toEqual(['sales', 'finance']);
+      expect(metaTransformer.cubes.find(c => c.config.name === 'replacement_date')?.config.sqlSchemas)
+        .toEqual(['analytics']);
+      expect(metaTransformer.cubes.find(c => c.config.name === 'legacy')?.config)
+        .not.toHaveProperty('sqlSchemas');
+    });
+
+    it('inherits sqlSchemas and replaces them when a child declares its own', async () => {
+      const { compiler, metaTransformer } = prepareJsCompiler(`
+        cube('orders', {
+          sql: 'SELECT * FROM orders',
+          sqlSchemas: ['sales', 'finance'],
+          measures: { count: { type: 'count' } },
+          dimensions: { id: { sql: 'id', type: 'number', primaryKey: true } }
+        });
+        cube('inherited_orders', { extends: orders });
+        cube('replacement_orders', { extends: orders, sqlSchemas: ['analytics'] });
+      `);
+
+      await compiler.compile();
+
+      expect(metaTransformer.cubes.find(c => c.config.name === 'inherited_orders')?.config.sqlSchemas)
+        .toEqual(['sales', 'finance']);
+      expect(metaTransformer.cubes.find(c => c.config.name === 'replacement_orders')?.config.sqlSchemas)
+        .toEqual(['analytics']);
+    });
+  });
+
   const schemaCompile = async () => {
     const { compiler, cubeEvaluator } = prepareJsCompiler(
       createCubeSchema({

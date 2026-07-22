@@ -2,6 +2,44 @@ import { prepareYamlCompiler } from './PrepareCompiler';
 import { PostgresQuery } from '../../src';
 
 describe('Yaml Schema Testing', () => {
+  describe('SQL schema projections', () => {
+    it('transpiles sql_schemas and preserves it in metadata', async () => {
+      const { compiler, metaTransformer } = prepareYamlCompiler(`
+cubes:
+  - name: orders
+    sql_table: orders
+    sql_schemas: [sales, finance]
+    dimensions:
+      - name: id
+        sql: id
+        type: number
+        primary_key: true
+  - name: inherited_orders
+    extends: orders
+  - name: replacement_orders
+    extends: orders
+    sql_schemas: [analytics]
+views:
+  - name: date
+    sql_schemas: [sales, finance]
+    cubes:
+      - join_path: orders
+        includes: '*'
+      `);
+
+      await compiler.compile();
+
+      expect(metaTransformer.cubes.find(c => c.config.name === 'orders')?.config.sqlSchemas)
+        .toEqual(['sales', 'finance']);
+      expect(metaTransformer.cubes.find(c => c.config.name === 'date')?.config.sqlSchemas)
+        .toEqual(['sales', 'finance']);
+      expect(metaTransformer.cubes.find(c => c.config.name === 'inherited_orders')?.config.sqlSchemas)
+        .toEqual(['sales', 'finance']);
+      expect(metaTransformer.cubes.find(c => c.config.name === 'replacement_orders')?.config.sqlSchemas)
+        .toEqual(['analytics']);
+    });
+  });
+
   describe('Duplicate member detection', () => {
     it('detects duplicate measures', async () => {
       const { compiler } = prepareYamlCompiler(`

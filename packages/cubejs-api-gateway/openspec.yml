@@ -260,6 +260,11 @@ components:
           type: "object"
         description:
           type: "string"
+        sqlSchemas:
+          description: SQL schemas in which this cube or view is exposed through the SQL API.
+          type: "array"
+          items:
+            type: "string"
         measures:
           type: "array"
           items:

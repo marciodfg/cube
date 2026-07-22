@@ -162,6 +162,7 @@ export type CubeConfig = {
   isVisible: boolean;
   public: boolean;
   description?: string;
+  sqlSchemas?: string[];
   viewGroups?: string[];
   connectedComponent: number;
   meta?: any;
@@ -283,6 +284,7 @@ export class CubeToMetaTransformer implements CompilerInterface {
         isVisible: isCubeVisible,
         public: isCubeVisible,
         description: extendedCube.description,
+        ...(extendedCube.sqlSchemas ? { sqlSchemas: extendedCube.sqlSchemas } : {}),
         ...(viewGroupNames.length > 0 ? { viewGroups: viewGroupNames } : {}),
         connectedComponent: this.joinGraph.connectedComponents()[cubeName],
         meta: extendedCube.meta,

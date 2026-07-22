@@ -61,6 +61,7 @@ pub fn get_large_model_test_meta(dims: usize) -> Vec<V1CubeMeta> {
     vec![V1CubeMeta {
         name: cube_name.clone(),
         description: None,
+        sql_schemas: None,
         title: None,
         r#type: V1CubeMetaType::Cube,
         measures: vec![

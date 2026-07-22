@@ -8,6 +8,7 @@ fn test_deserialize_meta_response_with_format_fields() {
           "name": "orders",
           "type": "cube",
           "title": "Orders",
+          "sqlSchemas": ["sales", "finance"],
           "isVisible": false,
           "public": false,
           "connectedComponent": 1,
@@ -107,6 +108,10 @@ fn test_deserialize_meta_response_with_format_fields() {
     assert!(meta_response.cubes.is_some());
     let cubes = meta_response.cubes.unwrap();
     assert_eq!(cubes.len(), 1);
+    assert_eq!(
+        cubes[0].sql_schemas,
+        Some(vec!["sales".to_string(), "finance".to_string()])
+    );
 
     // Verify currency on measure
     let total_amount = &cubes[0].measures[2];

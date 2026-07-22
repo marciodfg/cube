@@ -23,6 +23,8 @@ pub struct V1CubeMeta {
     pub meta: Option<serde_json::Value>,
     #[serde(rename = "description", skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(rename = "sqlSchemas", skip_serializing_if = "Option::is_none")]
+    pub sql_schemas: Option<Vec<String>>,
     #[serde(rename = "measures")]
     pub measures: Vec<models::V1CubeMetaMeasure>,
     #[serde(rename = "dimensions")]
@@ -53,6 +55,7 @@ impl V1CubeMeta {
             r#type,
             meta: None,
             description: None,
+            sql_schemas: None,
             measures,
             dimensions,
             segments,
