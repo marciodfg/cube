@@ -50,6 +50,16 @@ use super::information_schema::redshift::{
 };
 
 impl DatabaseProtocol {
+    fn get_cube_projection_provider(
+        context: &CubeContext,
+        schema: &str,
+        table: &str,
+    ) -> Option<Arc<dyn TableProvider>> {
+        let projection = context.meta.find_catalog_projection(schema, table)?;
+        let cube = context.meta.find_cube_with_name(&projection.name)?;
+        Some(Arc::new(CubeTableProvider::new(cube.clone())))
+    }
+
     pub fn get_postgres_table_name(
         &self,
         table_provider: Arc<dyn TableProvider>,
@@ -253,11 +263,10 @@ impl DatabaseProtocol {
                 }
             }
             "public" => {
-                if let Some(projection) = context.meta.find_catalog_projection(&schema, &table) {
-                    if let Some(cube) = context.meta.find_cube_with_name(&projection.name) {
-                        return Some(Arc::new(CubeTableProvider::new(cube.clone())));
-                    }
-                };
+                if let Some(provider) = Self::get_cube_projection_provider(context, &schema, &table)
+                {
+                    return Some(provider);
+                }
 
                 // TODO: Move to pg_catalog, support SEARCH PATH.
                 // Redshift
@@ -480,12 +489,7 @@ impl DatabaseProtocol {
                 _ => return None,
             },
             _ => {
-                if let Some(projection) = context.meta.find_catalog_projection(&schema, &table) {
-                    if let Some(cube) = context.meta.find_cube_with_name(&projection.name) {
-                        return Some(Arc::new(CubeTableProvider::new(cube.clone())));
-                    }
-                }
-                return None;
+                return Self::get_cube_projection_provider(context, &schema, &table);
             }
         }
 

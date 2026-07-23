@@ -166,14 +166,14 @@ pub struct PgCatalogAttributeProvider {
 }
 
 impl PgCatalogAttributeProvider {
-    pub fn new(tables: &[CatalogProjection]) -> Self {
+    pub fn new(catalog_projections: &[CatalogProjection]) -> Self {
         let mut builder = PgCatalogAttributeBuilder::new();
 
-        for table in tables {
+        for projection in catalog_projections {
             let mut column_id = 1;
-            for column in &table.columns {
+            for column in &projection.columns {
                 builder.add_attribute(
-                    table.oid,
+                    projection.oid,
                     &column.name,
                     &column.column_type,
                     column_id,

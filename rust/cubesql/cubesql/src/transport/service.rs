@@ -382,6 +382,67 @@ impl TransportService for HttpTransport {
     }
 }
 
+#[cfg(test)]
+mod http_transport_tests {
+    use super::*;
+    use wiremock::{
+        matchers::{header, method, path, query_param},
+        Mock, MockServer, ResponseTemplate,
+    };
+
+    #[tokio::test]
+    async fn http_meta_builds_only_visible_schema_projections() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/meta"))
+            .and(query_param("extended", "true"))
+            .and(header("authorization", "Bearer test-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"{
+                    "cubes": [
+                        {
+                            "name": "orders",
+                            "type": "cube",
+                            "public": true,
+                            "sqlSchemas": ["sales", "finance"],
+                            "measures": [],
+                            "dimensions": [],
+                            "segments": []
+                        },
+                        {
+                            "name": "hidden_orders",
+                            "type": "cube",
+                            "public": false,
+                            "sqlSchemas": ["hidden_only"],
+                            "measures": [],
+                            "dimensions": [],
+                            "segments": []
+                        }
+                    ]
+                }"#,
+                "application/json",
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let transport = HttpTransport::new();
+        let auth_context: AuthContextRef = Arc::new(HttpAuthContext {
+            access_token: "test-token".to_string(),
+            base_path: server.uri(),
+        });
+
+        let meta = transport.meta(auth_context).await.unwrap();
+
+        assert!(meta.find_catalog_projection("sales", "orders").is_some());
+        assert!(meta.find_catalog_projection("finance", "orders").is_some());
+        assert!(meta
+            .find_catalog_projection("hidden_only", "hidden_orders")
+            .is_none());
+        assert!(!meta.has_catalog_schema("hidden_only"));
+    }
+}
+
 #[derive(Debug)]
 pub struct SqlTemplates {
     pub templates: HashMap<String, String>,

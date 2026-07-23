@@ -546,13 +546,13 @@ describe('SQL API', () => {
       { schema: 'sales', table: 'shared_date' },
     ];
 
-    test('exposes projection metadata through the authorized meta endpoint', async () => {
+    test('exposes projection metadata with existing visibility markers', async () => {
       const token = jwt.sign(
         { user: 'admin' },
         DEFAULT_CONFIG.CUBEJS_API_SECRET,
         { expiresIn: '1h' }
       );
-      const response = await fetch(`${birdbox.configuration.apiUrl}/meta?extended=true`, {
+      const response = await fetch(`${birdbox.configuration.apiUrl}/meta`, {
         headers: { Authorization: token },
       });
       const { cubes }: {

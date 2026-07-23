@@ -185,19 +185,19 @@ pub struct PgCatalogTypeProvider {
 }
 
 impl PgCatalogTypeProvider {
-    pub fn new(tables: &[CatalogProjection]) -> Self {
+    pub fn new(catalog_projections: &[CatalogProjection]) -> Self {
         let mut builder = PgCatalogTypeBuilder::new();
 
         for typ in PgType::get_all() {
             builder.add_type(typ);
         }
 
-        for table in tables {
+        for projection in catalog_projections {
             builder.add_type(&PgType {
-                oid: table.record_oid,
-                typname: table.name.as_str(),
-                regtype: table.name.as_str(),
-                typnamespace: table.schema_oid,
+                oid: projection.record_oid,
+                typname: projection.name.as_str(),
+                regtype: projection.name.as_str(),
+                typnamespace: projection.schema_oid,
                 typowner: 10,
                 typlen: -1,
                 typbyval: false,
@@ -205,10 +205,10 @@ impl PgCatalogTypeProvider {
                 typcategory: "C",
                 typisprefered: false,
                 typisdefined: true,
-                typrelid: table.oid,
+                typrelid: projection.oid,
                 typsubscript: "-",
                 typelem: 0,
-                typarray: table.array_handler_oid,
+                typarray: projection.array_handler_oid,
                 // TODO Verify
                 typalign: "i",
                 typstorage: "x",
@@ -220,10 +220,10 @@ impl PgCatalogTypeProvider {
             });
 
             builder.add_type(&PgType {
-                oid: table.array_handler_oid,
-                typname: format!("_{}", table.name).as_str(),
-                regtype: format!("{}[]", table.name).as_str(),
-                typnamespace: table.schema_oid,
+                oid: projection.array_handler_oid,
+                typname: format!("_{}", projection.name).as_str(),
+                regtype: format!("{}[]", projection.name).as_str(),
+                typnamespace: projection.schema_oid,
                 typowner: 10,
                 typlen: -1,
                 typbyval: false,
@@ -233,7 +233,7 @@ impl PgCatalogTypeProvider {
                 typisdefined: true,
                 typrelid: 0,
                 typsubscript: "array_subscript_handler",
-                typelem: table.record_oid,
+                typelem: projection.record_oid,
                 typarray: 0,
                 // TODO Verify
                 typalign: "d",

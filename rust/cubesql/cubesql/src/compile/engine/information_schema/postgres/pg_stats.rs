@@ -109,14 +109,14 @@ pub struct PgCatalogStatsProvider {
 }
 
 impl PgCatalogStatsProvider {
-    pub fn new(tables: &[CatalogProjection]) -> Self {
+    pub fn new(catalog_projections: &[CatalogProjection]) -> Self {
         let mut builder = PgCatalogStatsBuilder::new();
 
-        for table in tables {
-            for column in &table.columns {
+        for projection in catalog_projections {
+            for column in &projection.columns {
                 builder.add_stats(
-                    &table.schema,
-                    &table.name,
+                    &projection.schema,
+                    &projection.name,
                     &column.name,
                     column.column_type.avg_size(),
                 );

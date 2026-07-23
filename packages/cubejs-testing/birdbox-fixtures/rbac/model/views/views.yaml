@@ -26,6 +26,10 @@ views:
         includes: "*"
 
   - name: orders_view
+    sql_schemas:
+      - public
+      - sales
+      - finance
     cubes:
       - join_path: orders
         includes: "*"

@@ -81,17 +81,17 @@ pub struct PgCatalogDescriptionProvider {
 }
 
 impl PgCatalogDescriptionProvider {
-    pub fn new(tables: &[CatalogProjection]) -> Self {
+    pub fn new(catalog_projections: &[CatalogProjection]) -> Self {
         let mut builder = PgCatalogDescriptionBuilder::new();
 
-        for table in tables {
-            if let Some(description) = &table.description {
-                builder.add_table(table.oid, description);
+        for projection in catalog_projections {
+            if let Some(description) = &projection.description {
+                builder.add_table(projection.oid, description);
             }
 
-            for (idx, column) in table.columns.iter().enumerate() {
+            for (idx, column) in projection.columns.iter().enumerate() {
                 if let Some(description) = &column.description {
-                    builder.add_column(table.oid, idx, description);
+                    builder.add_column(projection.oid, idx, description);
                 }
             }
         }

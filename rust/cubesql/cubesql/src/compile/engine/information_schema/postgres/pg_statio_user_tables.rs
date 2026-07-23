@@ -87,8 +87,8 @@ impl PgCatalogStatioUserTablesProvider {
     pub fn new(catalog_projections: &[CatalogProjection]) -> Self {
         let mut builder = PgCatalogStatioUserTablesBuilder::new(catalog_projections.len());
 
-        for table in catalog_projections {
-            builder.add_table(table.oid, &table.schema, &table.name);
+        for projection in catalog_projections {
+            builder.add_table(projection.oid, &projection.schema, &projection.name);
         }
 
         Self {

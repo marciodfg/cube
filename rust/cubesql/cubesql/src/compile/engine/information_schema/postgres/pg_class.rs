@@ -238,18 +238,18 @@ impl PgCatalogClassProvider {
             relminmxid: 1,
         });
 
-        for table in catalog_projections {
+        for projection in catalog_projections {
             builder.add_class(&PgClass {
-                oid: table.oid,
-                relname: table.name.clone(),
-                relnamespace: table.schema_oid,
-                reltype: table.record_oid,
+                oid: projection.oid,
+                relname: projection.name.clone(),
+                relnamespace: projection.schema_oid,
+                reltype: projection.record_oid,
                 relam: 2,
                 relfilenode: 0,
                 reltoastrelid: 0,
                 relisshared: false,
                 relkind: "r".to_string(),
-                relnatts: table.columns.len().to_i32().unwrap_or(0),
+                relnatts: projection.columns.len().to_i32().unwrap_or(0),
                 relhasrules: false,
                 relreplident: "p".to_string(),
                 relfrozenxid: 0,

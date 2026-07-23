@@ -139,6 +139,20 @@ describe('Cube RBAC Engine', () => {
       expect(res.rows).toMatchSnapshot('orders_view');
     });
 
+    test('applies the same row and member policies to every orders_view projection', async () => {
+      const publicProjection = await connection.query(
+        'SELECT * FROM public.orders_view ORDER BY id'
+      );
+      expect(publicProjection.rows.map(({ id }) => id)).toEqual([1, 10, 11]);
+
+      for (const schema of ['sales', 'finance']) {
+        const res = await connection.query(
+          `SELECT * FROM ${schema}.orders_view ORDER BY id`
+        );
+        expect(res.rows).toEqual(publicProjection.rows);
+      }
+    });
+
     test('SELECT * from line_items_view_joined_orders', async () => {
       const res = await connection.query('SELECT * FROM line_items_view_joined_orders limit 10');
       // Querying the line_items cube with joined orders should take into account
@@ -186,6 +200,22 @@ describe('Cube RBAC Engine', () => {
       // because the manager security context has a wrong city and should not match
       // two conditions defined on the manager policy
       expect(res.rows).toMatchSnapshot('line_items_manager');
+    });
+
+    test('does not expose orders_view projections outside the authorized group', async () => {
+      const catalog = await connection.query(`
+        SELECT table_schema, table_name
+        FROM information_schema.tables
+        WHERE table_schema IN ('sales', 'finance')
+          AND table_name = 'orders_view'
+      `);
+      expect(catalog.rows).toEqual([]);
+
+      for (const schema of ['sales', 'finance']) {
+        await expect(
+          connection.query(`SELECT id FROM ${schema}.orders_view`)
+        ).rejects.toThrow();
+      }
     });
   });
 
