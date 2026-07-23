@@ -546,6 +546,34 @@ describe('SQL API', () => {
       { schema: 'sales', table: 'shared_date' },
     ];
 
+    test('exposes projection metadata through the authorized meta endpoint', async () => {
+      const token = jwt.sign(
+        { user: 'admin' },
+        DEFAULT_CONFIG.CUBEJS_API_SECRET,
+        { expiresIn: '1h' }
+      );
+      const response = await fetch(`${birdbox.configuration.apiUrl}/meta?extended=true`, {
+        headers: { Authorization: token },
+      });
+      const { cubes }: {
+        cubes: Array<{ name: string; public?: boolean; sqlSchemas?: string[] }>;
+      } = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(cubes.find(({ name }) => name === 'schema_orders')).toMatchObject({
+        public: true,
+        sqlSchemas: ['sales', 'finance'],
+      });
+      expect(cubes.find(({ name }) => name === 'schema_customers')).toMatchObject({
+        public: true,
+        sqlSchemas: ['public', 'finance'],
+      });
+      expect(cubes.find(({ name }) => name === 'hidden_orders')).toMatchObject({
+        public: false,
+        sqlSchemas: ['hidden_only'],
+      });
+    });
+
     test('queries every declared cube and view projection while preserving legacy public access', async () => {
       for (const schema of ['sales', 'finance']) {
         const cube = await connection.query(`
@@ -697,6 +725,23 @@ describe('SQL API', () => {
         text: 'SELECT id, amount FROM sales.schema_orders WHERE id = $1',
         values: [2],
       })).rows).toEqual([{ id: 2, amount: 200 }]);
+    });
+
+    test('joins two schema projections of the same semantic cube', async () => {
+      const joined = await connection.query(`
+        SELECT sales_orders.id,
+          sales_orders.status AS sales_status,
+          finance_orders.status AS finance_status
+        FROM sales.schema_orders AS sales_orders
+        INNER JOIN finance.schema_orders AS finance_orders
+          ON sales_orders.__cubeJoinField = finance_orders.__cubeJoinField
+        ORDER BY sales_orders.id
+      `);
+
+      expect(joined.rows).toEqual([
+        { id: 1, sales_status: 'new', finance_status: 'new' },
+        { id: 2, sales_status: 'processed', finance_status: 'processed' },
+      ]);
     });
 
     test('keeps PostgreSQL and Redshift catalog projections consistent', async () => {
